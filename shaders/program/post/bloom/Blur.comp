@@ -1,0 +1,49 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Gaussian blur for bloom tiles
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Input //===============================================================================//
+
+const vec2 workGroupsRender = vec2(0.5, 1.0);
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Uniform //=============================================================================//
+
+layout(r11f_g11f_b10f) restrict uniform image2D colorimg4;
+
+//======// Shared Memory //=======================================================================//
+
+shared vec3 sharedData[128 + 8];
+
+//======// Main //================================================================================//
+void main() {
+	ivec2 texel = ivec2(gl_GlobalInvocationID.xy);
+	uint index = gl_LocalInvocationIndex;
+
+	sharedData[index] = imageLoad(colorimg4, texel - (OFFSET << 2)).rgb;
+	if (index < 8) {
+		sharedData[index + 128] = imageLoad(colorimg4, texel + OFFSET * (128 - 4)).rgb;
+	}
+	barrier();
+
+	const float kernel[5] = float[5](0.27343750, 0.21875000, 0.10937500, 0.03125000, 0.00390625);
+
+	vec3 bloomTiles = vec3(0.0);
+	for (int i = 0; i < 9; ++i) {
+		bloomTiles += sharedData[index + i].rgb * kernel[abs(i - 4)];
+	}
+
+	imageStore(colorimg4, texel, vec4(bloomTiles, 1.0));
+}

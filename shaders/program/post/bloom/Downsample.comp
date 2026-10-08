@@ -1,0 +1,173 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Downsample bloom tiles
+	Reference: https://www.iryoku.com/next-generation-post-processing-in-call-of-duty-advanced-warfare/
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#if DOWNSAMPLE_LEVEL == 0
+const vec2 workGroupsRender = vec2(0.5, 0.5);
+#elif DOWNSAMPLE_LEVEL == 1
+const vec2 workGroupsRender = vec2(0.25, 0.25);
+#elif DOWNSAMPLE_LEVEL == 2
+const vec2 workGroupsRender = vec2(0.125, 0.125);
+#elif DOWNSAMPLE_LEVEL == 3
+const vec2 workGroupsRender = vec2(0.0625, 0.0625);
+#elif DOWNSAMPLE_LEVEL == 4
+const vec2 workGroupsRender = vec2(0.03125, 0.03125);
+#elif DOWNSAMPLE_LEVEL == 5
+const vec2 workGroupsRender = vec2(0.015625, 0.015625);
+#endif
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Uniform //=============================================================================//
+
+writeonly uniform image2D colorimg4;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Shared Memory //=======================================================================//
+
+// 13 samples per output collapse to an 18x35 checkerboard tile.
+shared vec3 sharedData[35][18];
+
+//======// Function //============================================================================//
+
+#if DOWNSAMPLE_LEVEL == 0
+	#define bloomTileTex colortex1
+#else
+	#define bloomTileTex colortex4
+#endif
+
+const vec2 bloomTileOffset[6] = vec2[6](
+	vec2(0.0000, 0.0000),
+	vec2(0.0000, 0.5000),
+	vec2(0.2500, 0.5000),
+	vec2(0.2500, 0.6250),
+	vec2(0.3125, 0.6250),
+	vec2(0.3150, 0.6563)
+);
+
+vec2 GetGroupSourceUv() {
+	vec2 srcUv = vec2(gl_WorkGroupID.xy * 16u) * 2.0 + 1.0;
+	srcUv *= originTexelSize;
+
+	#if DOWNSAMPLE_LEVEL > 0
+		const int srcIndex = DOWNSAMPLE_LEVEL - 1;
+		srcUv += float(srcIndex * 8) * originTexelSize + bloomTileOffset[srcIndex];
+	#endif
+
+	return srcUv;
+}
+
+vec3 ReadShared(ivec2 pos) {
+	return sharedData[pos.y][pos.x];
+}
+
+void WriteShared(ivec2 pos, vec3 data) {
+	sharedData[pos.y][pos.x] = data;
+}
+
+void LoadSharedSample(uint index, vec2 groupSrcUv) {
+	ivec2 writePos = ivec2(index % 18u, index / 18u);
+	ivec2 sampleOffset = ivec2(
+		writePos.x * 2 + (writePos.y & 1) - 2,
+		writePos.y - 2
+	);
+	vec2 sampleUv = groupSrcUv + vec2(sampleOffset) * originTexelSize;
+	WriteShared(writePos, texture(bloomTileTex, sampleUv).rgb);
+}
+
+void LoadSharedTile() {
+	vec2 groupSrcUv = GetGroupSourceUv();
+	uint index = gl_LocalInvocationIndex;
+
+	LoadSharedSample(index, groupSrcUv);
+	LoadSharedSample(index + 256u, groupSrcUv);
+	if (index + 512u < 630u) {
+		LoadSharedSample(index + 512u, groupSrcUv);
+	}
+
+	barrier();
+}
+
+vec3 CalculateBloomTile() {
+	// Custom hand-crafted 36-texel downsample kernel
+	ivec2 centerPos = ivec2(gl_LocalInvocationID.x, gl_LocalInvocationID.y * 2u);
+
+	vec3 b00 = ReadShared(centerPos);
+	vec3 b01 = ReadShared(centerPos + ivec2(1, 0));
+	vec3 b02 = ReadShared(centerPos + ivec2(2, 0));
+	vec3 c00 = ReadShared(centerPos + ivec2(0, 1));
+	vec3 c01 = ReadShared(centerPos + ivec2(1, 1));
+	vec3 b10 = ReadShared(centerPos + ivec2(0, 2));
+	vec3 b11 = ReadShared(centerPos + ivec2(1, 2));
+	vec3 b12 = ReadShared(centerPos + ivec2(2, 2));
+	vec3 c10 = ReadShared(centerPos + ivec2(0, 3));
+	vec3 c11 = ReadShared(centerPos + ivec2(1, 3));
+	vec3 b20 = ReadShared(centerPos + ivec2(0, 4));
+	vec3 b21 = ReadShared(centerPos + ivec2(1, 4));
+	vec3 b22 = ReadShared(centerPos + ivec2(2, 4));
+
+	vec3 B00 = (b00 + b01 + b10 + b11) * 0.25;
+	vec3 B01 = (b01 + b02 + b11 + b12) * 0.25;
+	vec3 B10 = (b10 + b11 + b20 + b21) * 0.25;
+	vec3 B11 = (b11 + b12 + b21 + b22) * 0.25;
+	vec3 C00 = (c00 + c01 + c10 + c11) * 0.25;
+
+	#if defined BLOOM_KARIS_AVERAGE && DOWNSAMPLE_LEVEL == 0
+		// [Karis2013] proposes reducing the dynamic range before averaging
+		vec4 bloomTile = vec4(0.0);
+
+		float weight = karisAverage(C00) * 0.5;
+		bloomTile += vec4(C00 * weight, weight);
+
+		weight = karisAverage(B00) * 0.125;
+		bloomTile += vec4(B00 * weight, weight);
+
+		weight = karisAverage(B01) * 0.125;
+		bloomTile += vec4(B01 * weight, weight);
+
+		weight = karisAverage(B10) * 0.125;
+		bloomTile += vec4(B10 * weight, weight);
+
+		weight = karisAverage(B11) * 0.125;
+		bloomTile += vec4(B11 * weight, weight);
+
+		return bloomTile.rgb * rcp(bloomTile.a);
+	#else
+		return (B00 + B01 + B10 + B11) * 0.125 + C00 * 0.5;
+	#endif
+}
+
+//======// Main //================================================================================//
+void main() {
+	LoadSharedTile();
+
+	vec2 srcUv = vec2(gl_GlobalInvocationID.xy) * 2.0 + 1.0;
+	srcUv *= originTexelSize;
+
+	if (any(greaterThanEqual(srcUv, vec2(exp2(-float(DOWNSAMPLE_LEVEL)))))) {
+		return;
+	}
+
+	vec3 bloomTile = CalculateBloomTile();
+
+	vec2 dstTexel = vec2(gl_GlobalInvocationID.xy + DOWNSAMPLE_LEVEL * 8);
+	dstTexel += bloomTileOffset[DOWNSAMPLE_LEVEL] * originViewSize + 0.5;
+	imageStore(colorimg4, ivec2(dstTexel), vec4(bloomTile, 1.0));
+}
