@@ -1,0 +1,80 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Output //==============================================================================//
+
+/* RENDERTARGETS: 6,7,8 */
+layout(location = 0) out vec4 albedoOut;
+layout(location = 1) out uvec4 materialOut;
+layout(location = 2) out vec4 normalOut;
+
+//======// Input //===============================================================================//
+
+flat in vec3 geoNormal;
+in vec3 worldPos;
+
+in vec3 vertColor;
+in vec2 lightmap;
+flat in uint materialID;
+
+//======// Uniform //=============================================================================//
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Random.glsl"
+
+//======// Main //================================================================================//
+void main() {
+	float alpha = smoothstep(sqr(far - 32.0), sqr(far - 16.0), sdot(worldPos));
+	float dither = BlueNoise(ivec2(gl_FragCoord.xy), frameCounter);
+
+	if (alpha < dither) {
+		discard;
+		return;
+	}
+
+	albedoOut = vec4(vertColor, 1.0);
+    #ifdef DISTANT_HORIZONS_TEXTURES
+        if (dh_hasTexture()) {
+            vec4 albedo = dh_sampleTexture();
+            vec3 clampedColor = saturate(albedoOut.rgb * (albedo.rgb * 2.0));
+            albedoOut.rgb = mix(albedoOut.rgb, clampedColor, albedo.a);
+        }
+    #else
+	    // Terrain noises
+		const float res = 8.0;
+		const float strength = 0.5;
+
+		mat3 tbnMatrix = BuildOrthonormalBasis(geoNormal);
+
+		vec2 noisePos = ((worldPos + cameraPosition) * tbnMatrix).xy;
+		float noise = texture(noisetex, noisePos * (res / 256.0)).x * 2.0;
+
+		albedoOut.rgb = pow(albedoOut.rgb, vec3(mix(1.0, noise, strength)));
+    #endif
+
+	#ifdef WHITE_WORLD
+		albedoOut = vec4(1.0);
+	#endif
+
+	materialOut.x = Pack2x8U(lightmap);
+	materialOut.y = materialID;
+	materialOut.zw = uvec2(0);
+
+	normalOut.xy = OctEncodeSnorm(geoNormal);
+	normalOut.zw = normalOut.xy;
+}
