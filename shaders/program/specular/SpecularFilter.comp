@@ -1,0 +1,123 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Reference: https://www.researchgate.net/publication/354065087_ReBLUR_A_Hierarchical_Recurrent_Denoiser
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(RENDER_SCALE, RENDER_SCALE);
+
+//======// Uniform //=============================================================================//
+
+writeonly uniform image2D colorimg0;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Transform.glsl"
+#include "/lib/universal/Fetch.glsl"
+#include "/lib/universal/Random.glsl"
+
+#include "/lib/surface/Material.glsl"
+
+vec3 GetSpecularDominantDir(vec3 N, vec3 V, float roughness) {
+	float f = (1.0 - roughness) * (approxSqrt(1.0 - roughness) + roughness);
+	vec3 R = reflect(V, N); // V is already inversed
+	return normalize(mix(N, R, f));
+}
+
+float LobeWeightFast(vec3 CN, vec3 SN, float CR, float SR) {
+	const float factor = 4.0;
+	float lambdaC = 2.0 / CR, lambdaS = 2.0 / SR;
+	float product = lambdaC * lambdaS, summa = lambdaC + lambdaS;
+
+	float weightN = product * (factor / maxEps(summa)) * (saturate(dot(CN, SN)) - 1.0);
+	float weightR = oms(log2(summa * inversesqrt(product))) * factor;
+	return exp2(weightN + weightR);
+}
+
+void SpecularFilter(inout vec4 specularData, ivec2 texelPos, float roughness, vec3 worldNormal, vec3 worldDir, float filterSize) {
+	float offsetScale = filterSize * saturate(20.0 * roughness);
+	offsetScale *= saturate(0.25 + specularData.a * 0.25);
+
+	float NdotV = abs(dot(worldNormal, worldDir));
+
+	// Calculate kernel basis
+	vec3 reflectedDir = GetSpecularDominantDir(worldNormal, worldDir, roughness);
+	vec2 tangent = normalize(cross(worldNormal, reflectedDir).xy) * offsetScale;
+	vec2 bitangent = vec2(tangent.y, -tangent.x);
+
+	float skewFactor = mix(0.5 + 0.5 * roughness, 1.0, NdotV);
+	bitangent *= 1.0 / skewFactor;
+
+	float linearDepth = ScreenToViewDepth(loadDepth0(texelPos));
+
+	ivec2 texelEnd = ivec2(scaledViewSize) - 2;
+
+	float sumWeight = 1.0;
+
+	// Vogel disk distribution
+    vec2 noise = SampleStbnVec2(texelPos, frameCounter + SPECULAR_FILTER_PASS);
+
+	const mat2 rotMat = mat2(cos(goldenAngle), sin(goldenAngle), -sin(goldenAngle), cos(goldenAngle));
+	vec2 sampleDir = sincos(noise.x * TAU);
+
+	for (uint i = 0u; i < 8u; ++i) {
+		vec2 offset = sampleDir * approxSqrt((float(i) + noise.y) * 0.125);
+		ivec2 sampleTexel = texelPos + ivec2(tangent * offset.x + bitangent * offset.y);
+		sampleDir = rotMat * sampleDir;
+
+		if (clamp(sampleTexel, ivec2(1), texelEnd) == sampleTexel) {
+			vec4 sampleData = texelFetch(colortex0, sampleTexel, 0);
+
+			float sampleLinearDepth = ScreenToViewDepth(loadDepth0(sampleTexel));
+			vec3 sampleWorldNormal = FetchSurfaceNormal(sampleTexel);
+			// vec3 sampleReflectedDir = reflect(-worldDir, sampleWorldNormal);
+			float sampleRoughness = sqr(1.0 - Unpack2x8UX(loadMaterialPack(sampleTexel).z));
+
+			float weight = LobeWeightFast(worldNormal, sampleWorldNormal, roughness, sampleRoughness);
+			weight *= exp2(-4.0 * NdotV * abs(linearDepth - sampleLinearDepth));
+			// weight = saturate(weight);
+
+			specularData += sampleData * weight;
+			sumWeight += weight;
+		}
+	}
+
+	specularData *= 1.0 / sumWeight;
+}
+
+//======// Main //================================================================================//
+void main() {
+	uvec2 localPos = RemapThread16x16(gl_LocalInvocationIndex);
+	ivec2 texelPos = ivec2(localPos + gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+
+	Material material = GetMaterialData(Unpack2x8U(loadMaterialPack(texelPos).z));
+	if (material.specularMask && !material.mirrorMask) {
+		vec2 screenCoord = texelToUvScaled(texelPos);
+		vec3 viewDir = ScreenToViewDir(screenCoord);
+
+		vec3 worldDir = mat3(gbufferModelViewInverse) * viewDir;
+		vec3 worldNormal = FetchSurfaceNormal(texelPos);
+
+		vec4 specularData = texelFetch(colortex0, texelPos, 0);
+        const float filterSize = float(32 >> SPECULAR_FILTER_PASS);
+
+        SpecularFilter(specularData, texelPos, material.roughness, worldNormal, worldDir, filterSize);
+		imageStore(colorimg0, texelPos, specularData);
+	}
+}
