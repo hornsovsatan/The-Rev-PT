@@ -1,0 +1,131 @@
+#if !defined INCLUDE_LIB_ATMOSPHERE_CELESTIAL
+#define INCLUDE_LIB_ATMOSPHERE_CELESTIAL
+
+#define RENDER_MOON
+
+#define STARS_INTENSITY 0.2 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0]
+#define STARS_COVERAGE  0.1 // [0.0 0.01 0.02 0.03 0.04 0.05 0.06 0.07 0.08 0.09 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0 1.1 1.2 1.3 1.4 1.5 1.6 1.7 1.8 1.9 2.0]
+
+#define GALAXY // Enables the rendering of the galaxy
+#define GALAXY_SOLAR_POS 0.5 // 0.0 = spring equinox, 0.25 = summer solstice, 0.5 = autumn equinox, 0.75 = winter solstice. [0.0 0.05 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0]
+#define GALAXY_INTENSITY 0.03 // [0.0 0.001 0.002 0.003 0.004 0.005 0.006 0.007 0.008 0.009 0.01 0.015 0.02 0.025 0.03 0.035 0.04 0.045 0.05 0.055 0.06 0.065 0.07 0.075 0.08 0.085 0.09 0.095 0.1 0.15 0.2 0.25 0.3 0.35 0.4 0.45 0.5 0.55 0.6 0.65 0.7 0.75 0.8 0.85 0.9 0.95 1.0]
+
+//================================================================================================//
+
+// Physical sun model from http://www.physics.hmc.edu/faculty/esin/a101/limbdarkening.pdf
+vec3 RenderSun(vec3 worldDir, vec3 sunDir) {
+	const float cosRadius = cos(sunAngularRadius);
+
+	float LdotV = dot(worldDir, sunDir);
+	if (LdotV >= cosRadius) {
+		const vec3 alpha = vec3(0.397, 0.503, 0.652);
+
+		float centerToEdge = saturate(oms(LdotV) / oms(cosRadius));
+		vec3 factor = pow(vec3(1.0 - centerToEdge * centerToEdge), alpha * 0.5);
+		vec3 finalLuminance = sunRadiance * factor;
+
+		return finalLuminance;
+	}
+	return vec3(0.0);
+}
+
+uniform sampler2D moonTex;
+
+vec4 RenderMoon(vec3 worldDir, vec3 moonDir) {
+	const float cosRadius = cos(moonAngularRadius);
+
+	float LdotV = dot(worldDir, moonDir);
+	if (LdotV >= cosRadius) {
+		float moonT = RaySphereIntersection(-moonDir, worldDir, moonAngularRadius).x;
+		vec3 moonNormal = normalize(worldDir * moonT - moonDir);
+
+		float cosTheta = cos(0.125 * TAU * float(moonPhase));
+		float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+
+		vec3 lightDir = normalize(cross(vec3(sincos(PI * 0.75), 0.0), worldDir));
+		lightDir = sinTheta * lightDir - cosTheta * worldDir;
+
+		float diffuse = saturate(dot(moonNormal, lightDir)) * rPI;
+
+		vec3 tangent = normalize(cross(moonDir, vec3(0.0, 1.0, 0.0)));
+		vec3 bitangent = cross(tangent, moonDir);
+
+		vec2 uv = (worldDir - moonDir) * mat2x3(tangent, bitangent);
+		uv *= rcp(moonAngularRadius); // Scale to [-1, 1]
+
+		float longitude = atan(uv.x, sqrt(1.0 - dot(uv, uv)));
+		float latitude = fastAcos(uv.y);
+
+		uv = vec2(longitude * rTAU + 0.5, latitude * rPI);
+		// vec3 color = sRGBToLinear(texture(moonTex, uv).rgb) * sRGB_2_Rec2020;
+		vec3 color = cube(texture(moonTex, uv).rgb);
+
+		return vec4(diffuse * color * moonRadiance, 1.0);
+	}
+	return vec4(0.0);
+}
+
+//================================================================================================//
+
+// Source: https://www.shadertoy.com/view/XtGGRt
+vec3 RenderStars(vec3 worldDir) {
+	vec3 p = mat3(shadowModelView) * worldDir;
+	vec3 c = vec3(0.0);
+
+	for (uint i = 0u; i < 4u; ++i) {
+        vec3 sp = p * 128.0;
+		vec3 id = floor(sp);
+		vec3 q = sp - id - 0.5;
+
+		vec2 rn = hash23(id);
+
+		float c2 = 1.0 - saturate(length(q) * 2.5);
+		c2 *= step(rn.x, STARS_COVERAGE * 0.001 + sqr(float(i)) * 0.001);
+
+		c += c2 * (mix(vec3(1.0, 0.49, 0.1), vec3(0.75, 0.9, 1.0), rn.y) + 0.25);
+		p *= 1.3;
+	}
+
+	return c * STARS_INTENSITY;
+}
+
+//================================================================================================//
+
+uniform sampler2D starmapTex;
+
+// Credit: https://github.com/Luna5ama
+
+// Converts equatorial coordinates to ecliptic coordinates
+// equatorial: input vector in equatorial coordinates
+// solarLon: longitude of the Sun in radians, 0.0 PI = Spring Equinox, 0.5 PI = Summer Solstice, 1.0 PI = Autumn Equinox, 1.5 PI = Winter Solstice
+// hourAngle: hour angle of the observer in radians, 0.0 = 0h, 0.5 PI = 6h, 1.0 PI = 12h, 1.5 PI = 18h
+// observerLat: latitude of the observer in radians
+vec3 EquatorialObserverRotation(vec3 equatorial, float solarLon, float hourAngle, float observerLat) {
+	mat3 latRotation = rotateMatY(observerLat);
+	mat3 solarRotation = rotateMatZ(PI - solarLon - hourAngle);
+	return solarRotation * latRotation * equatorial;
+}
+
+vec2 EquatorialRectangularToSpherical(vec3 equatorial) {
+	float dec = fastAsin(equatorial.z); // Declination
+	float ra = atan(equatorial.y, equatorial.x); // Right Ascension
+	return vec2(ra, dec);
+}
+
+vec3 RenderGalaxy(vec3 worldDir) {
+	// Rotate the world direction to equatorial coordinates
+	vec3 starmapDir = vec3(worldDir.yx, -worldDir.z);
+
+	float hourAngle = float(worldTime - 18000) * (TAU / 24000.0);
+	starmapDir = EquatorialObserverRotation(starmapDir, GALAXY_SOLAR_POS * TAU, hourAngle, radians(43.0));
+
+	vec2 starmapSpherical = EquatorialRectangularToSpherical(normalize(starmapDir));
+	// Starmap is centered at 0h right ascension, and r.a. increases to the left.
+	vec2 starmapCoord = 0.5 - starmapSpherical * vec2(rTAU, rPI);
+
+	// Bilinear interpolation is enough
+	vec3 starmap = texture(starmapTex, starmapCoord).rgb;
+	return starmap * sRGB_2_Rec2020 * GALAXY_INTENSITY;
+}
+
+#endif // INCLUDE_LIB_ATMOSPHERE_CELESTIAL

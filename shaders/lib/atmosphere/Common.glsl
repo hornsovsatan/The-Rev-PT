@@ -1,0 +1,468 @@
+#if !defined INCLUDE_LIB_ATMOSPHERE_COMMON
+#define INCLUDE_LIB_ATMOSPHERE_COMMON
+
+/*
+--------------------------------------------------------------------------------
+
+	References:
+		Sébastien Hillaire. "A Scalable and Production Ready Sky and Atmosphere Rendering Technique". EGSR 2020.
+			https://sebh.github.io/publications/egsr2020.pdf
+		Epic Games, Inc. "Unreal Engine Sky Atmosphere Rendering Technique". 2020.
+			https://github.com/sebh/UnrealEngineSkyAtmosphere
+
+--------------------------------------------------------------------------------
+*/
+
+//================================================================================================//
+
+#define PLANET_GROUND
+
+#define VIEWER_BASE_ALTITUDE 256.0 // [64.0 128.0 256.0 384.0 512.0 1024.0 2048.0 4096.0 8192.0 16384.0 32768.0 65536.0 131072.0 262144.0 524288.0 1048576.0 2097152.0 4194304.0 8388608.0 16777216.0 33554432.0 67108864.0 134217728.0 268435456.0 536870912.0 1073741824.0]
+#define ATMOSPHERE_THICKNESS 100000.0 // [0.0 5000.0 10000.0 20000.0 30000.0 40000.0 50000.0 60000.0 70000.0 80000.0 90000.0 100000.0 110000.0 120000.0 130000.0 140000.0 150000.0 160000.0]
+
+#define ATMOSPHERE_TURBIDITY 1.0 // [0.0 0.25 0.5 0.75 1.0 1.25 1.5 1.75 2.0 2.25 2.5 2.75 3.0 3.25 3.5 3.75 4.0 4.25 4.5 4.75 5.0]
+
+#define ATMOSPHERE_SKY_SAMPLES 32 // [16 24 32 40 48 56 64 72 80 88 96 104 112 120 128]
+#define ATMOSPHERE_TLUT_SAMPLES 64 // [16 24 32 40 48 56 64 72 80 88 96 104 112 120 128]
+#define ATMOSPHERE_MSLUT_SAMPLES 24 // [16 24 32 40 48 56 64 72 80 88 96 104 112 120 128]
+
+#define ApplyFog(scene, fog) ((scene) * fog[1] + fog[0])
+
+//================================================================================================//
+
+struct AtmosphereParameters {
+	float bottomRadius;
+	float topRadius;
+	vec3 rayleighScattering;
+	vec3 mieScattering;
+	vec3 mieExtinction;
+	vec3 ozoneExtinction;
+	vec3 groundAlbedo;
+};
+
+//================================================================================================//
+
+const float planetRadius = 6371e3; // The average radius of the Earth: 6,371 kilometers
+const float aerosol_g = 0.8; // Asymmetry factor for mie phase function
+const float aerosol_d = 1.6; // Mean diameter in µm
+
+// https://www.desmos.com/calculator/2ys2dp2faw
+#define PreethamMieScatteringCoeff(turbidity) \
+	max(vec3(-6.68430439852e-6, -7.85166616868e-6, -1.13646707643e-5) + \
+		vec3( 6.71921474408e-6,  7.89267333454e-6, 	1.14240254196e-5) * turbidity, 0.0)
+
+const vec3 mieCoeffBase = PreethamMieScatteringCoeff(exp2(ATMOSPHERE_TURBIDITY));
+
+// Every length is in m
+const AtmosphereParameters atmosphere = AtmosphereParameters(
+	planetRadius,
+	planetRadius + ATMOSPHERE_THICKNESS,
+	vec3(8.059375432e-6, 1.671209429e-5, 4.080133294e-5) * sRGB_2_Rec2020,
+	mieCoeffBase * 0.9,
+	mieCoeffBase,
+	vec3(8.304280072e-7, 1.314911970e-6, 5.440679729e-8) * sRGB_2_Rec2020,
+	vec3(0.1, 0.2, 0.5) * sRGB_2_Rec2020
+);
+
+const mat3 atmosphereExtinctionCoeff = mat3(
+	atmosphere.rayleighScattering,
+	atmosphere.mieExtinction,
+	atmosphere.ozoneExtinction
+);
+
+const mat2x3 atmosphereScatteringCoeff = mat2x3(
+	atmosphere.rayleighScattering,
+	atmosphere.mieScattering
+);
+
+float atmosphereViewHeight = planetRadius + VIEWER_BASE_ALTITUDE + eyeAltitude;
+vec3 atmosphereViewPos = vec3(0.0, atmosphereViewHeight, 0.0);
+
+// Celestial bodies
+const float sunRadius   = 6.9634e8 * SUN_RADIUS_MULT;
+const float sunDistance = 1.496e11;
+const float sunAngularRadius = atan(sunRadius / sunDistance);
+const float sunSolidAngle = TAU * (1.0 - cos(sunAngularRadius));
+
+const vec3 sunIrradiance = vec3(1.0, 0.949, 0.937) * 126.0; // kW/m^2
+const vec3 sunRadiance = sunIrradiance / sunSolidAngle;
+
+const float moonRadius   = 1.7374e6 * MOON_RADIUS_MULT;
+const float moonDistance = 3.8440e8;
+const float moonAngularRadius = atan(moonRadius / moonDistance);
+const float moonSolidAngle = TAU * (1.0 - cos(moonAngularRadius));
+
+const vec3 moonAlbedo = vec3(0.75, 0.95, 1.0) * 0.15 * exp2(NIGHT_BRIGHTNESS);
+const vec3 moonRadiance = moonAlbedo * sunIrradiance;
+const vec3 moonIrradiance = moonRadiance * moonSolidAngle;
+
+//================================================================================================//
+
+vec2 RaySphereIntersection(vec3 pos, vec3 dir, float rad) {
+	float PdotD = dot(pos, dir);
+	float delta = sqr(PdotD) - sdot(pos) + sqr(rad);
+
+	if (delta >= 0.0) {
+		delta *= inversesqrt(delta);
+		return vec2(-delta, delta) - PdotD;
+	} else {
+		return vec2(-1.0);
+	}
+}
+
+vec2 RaySphereIntersection(float r, float mu, float rad) {
+	float delta = sqr(r) * fma(mu, mu, -1.0) + sqr(rad);
+
+	if (delta >= 0.0) {
+		delta *= inversesqrt(delta);
+		return vec2(-delta, delta) - r * mu;
+	} else {
+		return vec2(-1.0);
+	}
+}
+
+vec2 RaySphericalShellIntersection(vec3 pos, vec3 dir, float bottomRad, float topRad) {
+	vec2 bottomIntersection = RaySphereIntersection(pos, dir, bottomRad);
+	vec2 topIntersection = RaySphereIntersection(pos, dir, topRad);
+
+	if (topIntersection.y >= 0.0) {
+		vec2 intersection;
+		if (bottomIntersection.y < 0.0) {
+			intersection.x = max0(topIntersection.x);
+			intersection.y = topIntersection.y;
+		} else if (bottomIntersection.x < 0.0) {
+			intersection.x = bottomIntersection.y;
+			intersection.y = topIntersection.y;
+		} else {
+			intersection.x = max0(topIntersection.x);
+			intersection.y = bottomIntersection.x;
+		}
+
+		return intersection;
+	} else {
+		return vec2(-1.0);
+	}
+}
+
+vec2 RaySphericalShellIntersection(float r, float mu, float bottomRad, float topRad) {
+	vec2 bottomIntersection = RaySphereIntersection(r, mu, bottomRad);
+	vec2 topIntersection = RaySphereIntersection(r, mu, topRad);
+
+	if (topIntersection.y >= 0.0) {
+		vec2 intersection;
+		if (bottomIntersection.y < 0.0) {
+			intersection.x = max0(topIntersection.x);
+			intersection.y = topIntersection.y;
+		} else if (bottomIntersection.x < 0.0) {
+			intersection.x = bottomIntersection.y;
+			intersection.y = topIntersection.y;
+		} else {
+			intersection.x = max0(topIntersection.x);
+			intersection.y = bottomIntersection.x;
+		}
+
+		return intersection;
+	} else {
+		return vec2(-1.0);
+	}
+}
+
+// From https://gamedev.stackexchange.com/questions/96459/fast-ray-sphere-collision-code.
+// - ro: ray origin
+// - rd: normalized ray direction
+// - sr: sphere radius
+// - Returns distance from ro to first intersecion with sphere,
+//   or -1.0 if no intersection.
+float RaySphereIntersectNearest(vec3 ro, vec3 rd, float sr) {
+	float a = dot(rd, rd);
+	float b = 2.0 * dot(rd, ro);
+	float c = dot(ro, ro) - (sr * sr);
+	float delta = b * b - 4.0 * a * c;
+	if (delta < 0.0 || a == 0.0) {
+		return -1.0;
+	}
+	float sol0 = (-b - sqrt(delta)) / (2.0 * a);
+	float sol1 = (-b + sqrt(delta)) / (2.0 * a);
+	if (sol0 < 0.0 && sol1 < 0.0) {
+		return -1.0;
+	}
+	if (sol0 < 0.0) {
+		return max0(sol1);
+	} else if (sol1 < 0.0) {
+		return max0(sol0);
+	}
+	return max0(min(sol0, sol1));
+}
+
+// https://doi.org/10.1364/JOSA.47.000176
+float AirPhase(float mu) {
+	return uniformPhase * 0.7629 * (1.0 + 0.932 * mu * mu);
+}
+
+vec2 AtmospherePhase(float mu) {
+	return vec2(RayleighPhase(mu), KleinNishinaPhase(mu, 2500.0));
+}
+
+vec3 LightningContribution(vec3 pos) {
+	if (lightningBoltPosition.w < 0.5) return vec3(0.0);
+
+	float distSq = sdot(lightningBoltPosition.xyz - pos);
+	return vec3(0.32, 0.3, 1.0) * 5e4 / (1.0 + distSq);
+}
+
+//================================================================================================//
+
+vec2 UnitToSubUv(vec2 uv, vec2 res) {
+	return uv * (1.0 - 1.0 / res) + 0.5 / res;
+}
+
+// Transmittance LUT function parameterisation from Bruneton 2017 https://github.com/ebruneton/precomputed_atmospheric_scattering
+// uv in [0, 1]
+// mu in [-1, 1]
+// r in [bottomRadius, topRadius]
+
+void UvToLutTransmittanceParams(out float r, out float mu, vec2 uv) {
+	float x_mu = uv.x;
+	float x_r = uv.y;
+
+	float H = sqrt(atmosphere.topRadius * atmosphere.topRadius - atmosphere.bottomRadius * atmosphere.bottomRadius);
+	float rho = H * x_r;
+	r = sqrt(rho * rho + atmosphere.bottomRadius * atmosphere.bottomRadius);
+
+	float d_min = atmosphere.topRadius - r;
+	float d_max = rho + H;
+	float d = d_min + x_mu * (d_max - d_min);
+	mu = d == 0.0 ? 1.0 : (H * H - rho * rho - d * d) / (2.0 * r * d);
+	mu = clamp(mu, -1.0, 1.0);
+}
+
+vec2 LutTransmittanceParamsToUv(float r, float mu) {
+	float H = sqrt(max0(atmosphere.topRadius * atmosphere.topRadius - atmosphere.bottomRadius * atmosphere.bottomRadius));
+	float rho = sqrt(max0(r * r - atmosphere.bottomRadius * atmosphere.bottomRadius));
+
+	float discriminant = r * r * (mu * mu - 1.0) + atmosphere.topRadius * atmosphere.topRadius;
+	float d = max0(-r * mu + sqrt(discriminant)); // Distance to atmosphere boundary
+
+	float d_min = atmosphere.topRadius - r;
+	float d_max = rho + H;
+	float x_mu = (d - d_min) / (d_max - d_min);
+	float x_r = rho / H;
+
+	return vec2(x_mu, x_r);
+}
+
+vec3 AtmosphereDensity(vec3 pos) {
+	float altitude = length(pos) - atmosphere.bottomRadius;
+	return vec3(exp(-altitude * rcp(vec2(8e3, 1.4e3))), saturate(1.0 - abs(altitude - 2.5e4) * rcp(1.5e4)));
+}
+
+vec3 ReadTransmittanceLUT(float r, float mu) {
+	vec2 uv = LutTransmittanceParamsToUv(r, mu);
+	return texture(tLutTex, uv).rgb;
+}
+
+bool RayIntersectPlanetGround(float r, float mu) {
+	return mu < 0.0 && r * r * fma(mu, mu, -1.0) + atmosphere.bottomRadius * atmosphere.bottomRadius >= 0.0;
+}
+
+vec3 AtmosphereTransmittance(vec3 pos, vec3 dir) {
+	float r = length(pos);
+	float mu = dot(dir, pos) / r;
+	float earthShadow = float(!RayIntersectPlanetGround(r, mu));
+
+	return ReadTransmittanceLUT(r, mu) * earthShadow;
+}
+
+vec3 AtmosphereTransmittanceToPoint(float r, float mu, float d) {
+	float r_d = sqrt(d * d + 2.0 * r * mu * d + r * r);
+	float mu_d = clamp((r * mu + d) / r_d, -1.0, 1.0);
+
+	if (mu * d < 0.0) {
+		return saturate(ReadTransmittanceLUT(r_d, -mu_d) / ReadTransmittanceLUT(r, -mu));
+	} else {
+		return saturate(ReadTransmittanceLUT(r, mu) / ReadTransmittanceLUT(r_d, mu_d));
+	}
+}
+
+vec3 AtmosphereTransmittanceToPoint(vec3 pos, vec3 dir, float d) {
+	float r = length(pos);
+	float mu = dot(dir, pos) / r;
+
+	return AtmosphereTransmittanceToPoint(r, mu, d);
+}
+
+vec3 AtmosphereTransmittanceToSun(float r, float mu) {
+	float sinThetaH = atmosphere.bottomRadius / r;
+	float cosThetaH = sqrt(saturate(1.0 - sinThetaH * sinThetaH));
+	float earthShadow = linearstep(-sinThetaH * sunAngularRadius, sinThetaH * sunAngularRadius, mu + cosThetaH);
+
+	return ReadTransmittanceLUT(r, mu) * earthShadow;
+}
+
+vec3 AtmosphereTransmittanceToSun(vec3 pos, vec3 dir) {
+	float r = length(pos);
+	float mu = dot(dir, pos) / r;
+
+	return AtmosphereTransmittanceToSun(r, mu);
+}
+
+vec3 AtmosphereMultiScattering(float r, float mu) {
+	vec2 uv = vec2(saturate(0.5 + 0.5 * mu), linearstep(atmosphere.bottomRadius, atmosphere.topRadius, r));
+	return texture(msLutTex, uv).rgb;
+}
+
+vec3 AtmosphereSkyView(vec3 viewPos, vec3 rayDir, vec3 sunDir) {
+	float height = length(viewPos);
+	vec3 up = viewPos / height;
+
+	float viewZenithCos = dot(rayDir, up);
+	vec3 sideVector = normalize(cross(up, rayDir));
+	vec3 forwardVector = normalize(cross(sideVector, up));
+
+	vec2 lightOnPlane = vec2(dot(sunDir, sideVector), dot(sunDir, forwardVector));
+	float lightViewCos = normalize(lightOnPlane).y;
+
+	vec2 uv;
+	uv.x = sqrt(fma(lightViewCos, -0.5, 0.5));
+
+	float vHorizon = sqrt(height * height - atmosphere.bottomRadius * atmosphere.bottomRadius);
+	float beta = fastAcos(vHorizon / height);
+	float zenithHorizon = PI - beta;
+
+	float coord = fastAcos(viewZenithCos);
+	if (RayIntersectPlanetGround(height, viewZenithCos)) {
+		coord = (coord - zenithHorizon) / beta;
+		coord = sqrt(coord); // Non-linear mapping
+		uv.y = coord * 0.5 + 0.5;
+	} else {
+		coord = 1.0 - coord / zenithHorizon;
+		coord = sqrt(coord); // Non-linear mapping
+		uv.y = (1.0 - coord) * 0.5;
+	}
+
+	uv = UnitToSubUv(uv, textureSize(skyViewTex, 0));
+	return textureRGBE8(skyViewTex, saturate(uv));
+}
+
+bool AtmosphereSetupRay(inout vec3 rayPos, vec3 rayDir, out float tMax, out bool groundHit) {
+	float viewHeight = length(rayPos);
+
+	if (viewHeight > atmosphere.topRadius) {
+		float tTop = RaySphereIntersectNearest(rayPos, rayDir, atmosphere.topRadius);
+		if (tTop < 0.0) {
+			return true; // No intersection with atmosphere
+		}
+		vec3 upVector = rayPos / viewHeight;
+		rayPos += rayDir * tTop - upVector;
+	}
+
+	float tBottom = RaySphereIntersectNearest(rayPos, rayDir, atmosphere.bottomRadius);
+	float tTop = RaySphereIntersectNearest(rayPos, rayDir, atmosphere.topRadius);
+
+	if (tBottom < 0.0) {
+		if (tTop < 0.0) {
+			return true; // No intersection with earth nor atmosphere
+		} else {
+			tMax = tTop;
+		}
+	} else {
+		if (tTop > 0.0) {
+			tMax = min(tTop, tBottom);
+		}
+	}
+
+	groundHit = tMax == tBottom;
+
+	return false;
+}
+
+vec3 RaymarchScattering(vec3 rayPos, vec3 rayDir, vec3 sunDir) {
+	float cosTheta = dot(rayDir, sunDir);
+
+	#ifndef PLANET_GROUND
+		// Hacks to simulate atmosphere on the ground
+		if (rayDir.y < 0.0) {
+			rayDir.y *= saturate(exp2(atmosphereViewHeight * 1e-3 - atmosphere.topRadius * 1e-3));
+			rayDir = normalize(rayDir);
+		}
+	#endif
+
+	float tMax;
+	bool groundHit;
+	if (AtmosphereSetupRay(rayPos, rayDir, tMax, groundHit)) return vec3(0.0);
+
+	vec2 phaseValue = AtmospherePhase(cosTheta);
+
+	// Adaptive sample count
+	const float maxSamples = ATMOSPHERE_SKY_SAMPLES;
+	float sampleCount = round(maxSamples * saturate(fma(tMax, 1e-5, 0.5)));
+
+	float stepSize = tMax * rcp(sampleCount);
+	vec3 rayStep = stepSize * rayDir;
+	rayPos += 0.5 * rayStep;
+
+	vec3 lum = vec3(0.0);
+	vec3 transmittance = vec3(1.0);
+	for (uint i = 0u; i < uint(sampleCount); ++i, rayPos += rayStep) {
+		vec3 density = AtmosphereDensity(rayPos);
+		vec3 extinction = atmosphereExtinctionCoeff * density;
+
+		float r = length(rayPos);
+		float mu = dot(sunDir, rayPos) / r;
+
+		vec3 sunTransmittance = AtmosphereTransmittanceToSun(r, mu);
+		vec3 psiMs = AtmosphereMultiScattering(r, mu);
+
+		vec3 inScattering = atmosphereScatteringCoeff * (density.xy * phaseValue) * sunTransmittance;
+		inScattering += atmosphereScatteringCoeff * density.xy * psiMs;
+
+		vec3 sampleTransmittance = exp(-stepSize * extinction);
+
+		vec3 scatteringIntegral = (inScattering - inScattering * sampleTransmittance) / extinction;
+		lum += scatteringIntegral * transmittance;
+
+		transmittance *= sampleTransmittance;
+	}
+
+	// Ground diffuse
+	if (groundHit) {
+		float planetHeight = length(rayPos);
+		vec3 upVector = rayPos / planetHeight;
+
+		float sunZenithCos = dot(upVector, sunDir);
+		vec3 transmittanceToSun = AtmosphereTransmittanceToSun(planetHeight, sunZenithCos);
+
+		lum += atmosphere.groundAlbedo * rPI * saturate(sunZenithCos) * transmittance * transmittanceToSun;
+	}
+
+	return lum;
+}
+
+// de Carpentier 2017, "Decima Engine: Advances in Lighting and AA"
+void ExponentialHeightFog(
+	vec3 sunColor,
+	vec3 ambColor,
+	float rayLength,
+	float cameraHeight,
+	float worldHeight,
+	float LdotV,
+	inout vec3 background)
+{
+	const float scaleHeight = 1e3;
+	const float falloff = 1.0 / scaleHeight;
+	const vec3 betaT = atmosphereExtinctionCoeff[0] + atmosphereExtinctionCoeff[1];
+
+	// Transmittance
+	float t = max(cameraHeight - worldHeight, 0.1) * falloff;
+	t = (1.0 - exp2(-t)) / t * exp2(-worldHeight * falloff);
+	vec3 transmittance = exp(-rayLength * t * betaT);
+
+	// In-scatter
+	vec3 inscatter = sunColor * (atmosphereScatteringCoeff * AtmospherePhase(LdotV));
+	inscatter += ambColor * (atmosphereScatteringCoeff * vec2(rPI));
+	inscatter *= (1.0 - transmittance) * rcp(betaT);
+
+	background = background * transmittance + inscatter;
+}
+
+#endif // INCLUDE_LIB_ATMOSPHERE_COMMON
