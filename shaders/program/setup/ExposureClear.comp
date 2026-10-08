@@ -1,0 +1,36 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Initialize exposure SSBO
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = HISTOGRAM_BIN_COUNT, local_size_y = 1) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+
+//======// SSBO //================================================================================//
+
+#define SSBO_DECLARED_TPYE writeonly
+#include "/lib/universal/SSBO.glsl"
+
+//======// Main //================================================================================//
+void main() {
+	uint index = gl_LocalInvocationIndex;
+	exposure.histogram[index] = 0u;
+
+	if (index == 0u) {
+		exposure.value = exp2(AUTO_EV_BIAS) * 0.18;
+	}
+}

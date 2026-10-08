@@ -1,0 +1,41 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+--------------------------------------------------------------------------------
+*/
+
+writeonly uniform CLEAR_IMAGE_FORMAT CLEAR_IMAGE;
+#if defined CLEAR_IMAGE1
+    writeonly uniform CLEAR_IMAGE_FORMAT1 CLEAR_IMAGE1;
+#endif
+#if defined CLEAR_IMAGE2
+    writeonly uniform CLEAR_IMAGE_FORMAT2 CLEAR_IMAGE2;
+#endif
+#if defined CLEAR_IMAGE3
+    writeonly uniform CLEAR_IMAGE_FORMAT3 CLEAR_IMAGE3;
+#endif
+#if defined CLEAR_IMAGE4
+    writeonly uniform CLEAR_IMAGE_FORMAT4 CLEAR_IMAGE4;
+#endif
+
+void main() {
+	ivec2 tid = ivec2(gl_GlobalInvocationID.xy);
+	imageStore(CLEAR_IMAGE, tid, CLEAR_COLOR);
+    #if defined CLEAR_IMAGE1
+        imageStore(CLEAR_IMAGE1, tid, CLEAR_COLOR1);
+    #endif
+    #if defined CLEAR_IMAGE2
+        imageStore(CLEAR_IMAGE2, tid, CLEAR_COLOR2);
+    #endif
+    #if defined CLEAR_IMAGE3
+        imageStore(CLEAR_IMAGE3, tid, CLEAR_COLOR3);
+    #endif
+    #if defined CLEAR_IMAGE4
+        imageStore(CLEAR_IMAGE4, tid, CLEAR_COLOR4);
+    #endif
+}
