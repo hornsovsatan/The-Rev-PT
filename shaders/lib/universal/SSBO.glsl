@@ -1,0 +1,29 @@
+#if !defined INCLUDE_LIB_UNIVERSAL_SSBO
+#define INCLUDE_LIB_UNIVERSAL_SSBO
+
+#ifndef SSBO_DECLARED_TPYE
+#define SSBO_DECLARED_TPYE readonly
+#endif
+
+layout(std430, binding = 0) SSBO_DECLARED_TPYE buffer GlobalData {
+	int lastWorldTime;
+	int worldTimeDiff;
+	vec3 directIlluminance;
+	vec3 skyUpIlluminance;
+	vec3[9] skySH;
+	float dofFocusDistance;
+} global;
+
+layout(std430, binding = 1) SSBO_DECLARED_TPYE buffer ExposureData {
+	uint histogram[HISTOGRAM_BIN_COUNT];
+	float value;
+} exposure;
+
+layout(std430, binding = 2) SSBO_DECLARED_TPYE buffer CloudData {
+	mat4 shadowViewProj;
+	mat4 shadowViewProjInv;
+	mat4 prevShadowViewProj;
+    vec2 upscaleJitter;
+} cloud;
+
+#endif // INCLUDE_LIB_UNIVERSAL_SSBO
