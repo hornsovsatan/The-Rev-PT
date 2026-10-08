@@ -1,0 +1,94 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Compute diffuse indirect lighting
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(0.5, 0.5);
+
+//======// Uniform //=============================================================================//
+
+writeonly restrict uniform image2D colorimg3;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// SSBO //================================================================================//
+
+#include "/lib/universal/SSBO.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Transform.glsl"
+#include "/lib/universal/Fetch.glsl"
+#include "/lib/universal/Random.glsl"
+
+#include "/lib/atmosphere/Common.glsl"
+
+#include "/lib/lighting/BRDF.glsl"
+#include "/lib/lighting/SSILVB.glsl"
+
+float GetClosestDepthN(ivec2 texel) {
+	float depth = 1.0;
+
+	for (uint i = 0u; i < 8u; ++i) {
+		ivec2 sampleTexel = offset3x3N[i] + texel;
+		float sampleDepth = loadDepth0(sampleTexel);
+		depth = min(depth, sampleDepth);
+	}
+
+	return depth;
+}
+
+//======// Main //================================================================================//
+void main() {
+	uvec2 localPos = RemapThread16x16(gl_LocalInvocationIndex);
+	ivec2 texelPos = ivec2(localPos + gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+
+	ivec2 renderTexel = texelPos * 2 + checkerboardOffset2x2[frameCounter & 3u];
+	float depth = loadDepth0(renderTexel);
+	bool terrainCheck = lessThanFLT1(min(GetClosestDepthN(renderTexel), depth));
+	#if defined LOD_MOD
+		bool lodMask = !terrainCheck;
+		if (lodMask) {
+			depth = loadDepth0Lod(renderTexel);
+			terrainCheck = lessThanFLT1(depth);
+		}
+	#endif
+
+	if (terrainCheck) {
+		#if defined LOD_MOD
+			if (lodMask) depth = ViewToScreenDepth(ScreenToViewDepthLod(depth));
+		#endif
+
+		// Hand-depth correction
+		if (depth < 0.56) {
+			depth = depth * rcp(MC_HAND_DEPTH) + (0.5 - 0.5 / MC_HAND_DEPTH);
+		}
+
+		vec2 screenCoord = texelToUvScaled(renderTexel);
+		vec3 viewPos = ScreenToViewPos(vec3(screenCoord, depth));
+
+		vec3 worldNormal = FetchSurfaceNormal(renderTexel);
+		float lightmapSky = Unpack2x8UY(loadMaterialPack(renderTexel).x);
+
+		vec4 result = CalculateSSILVB(screenCoord, viewPos, worldNormal, lightmapSky);
+		result.rgb = RGBToYCoCg(result.rgb); // Convert to YCoCg color space (for filtering)
+		imageStore(colorimg3, texelPos, result);
+	} else {
+		imageStore(colorimg3, texelPos, vec4(0.0));
+	}
+}
