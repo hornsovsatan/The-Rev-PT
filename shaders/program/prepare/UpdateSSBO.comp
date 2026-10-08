@@ -1,0 +1,78 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Compute and store global SSBO
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 1, local_size_y = 1) in;
+const ivec3 workGroups = ivec3(1, 1, 1);
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Uniform //=============================================================================//
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// SSBO //================================================================================//
+
+#define SSBO_DECLARED_TPYE restrict
+#include "/lib/universal/SSBO.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/atmosphere/Common.glsl"
+#include "/lib/atmosphere/clouds/Common.glsl"
+
+#include "/lib/universal/Random.glsl"
+
+//======// Main //================================================================================//
+void main() {
+	// Compute illuminance
+	vec3 sunIlluminance = sunIrradiance * AtmosphereTransmittanceToSun(atmosphereViewPos, sunDirWorld);
+	vec3 moonIlluminance = moonIrradiance * AtmosphereTransmittanceToSun(atmosphereViewPos, moonDirWorld);
+	global.directIlluminance = sunIlluminance + moonIlluminance;
+
+	// Avoid the misalignment at sunrise and sunset
+	global.directIlluminance *= smoothstep(0.0, 0.01, shadowDirWorld.y);
+
+	global.worldTimeDiff = worldTime - global.lastWorldTime;
+    global.lastWorldTime = worldTime;
+
+    #ifdef CLOUDS
+        #ifdef CLOUD_SHADOWS
+            const float size = CLOUD_SHADOW_DISTANCE * 32.0;
+            const float zFar = CLOUD_SHADOW_DISTANCE * 32.0;
+
+            const mat4 shadowProj = mat4(
+                2.0 / size, 0.0, 0.0, 0.0,
+                0.0, 2.0 / size, 0.0, 0.0,
+                0.0, 0.0, -2.0 / zFar, 0.0,
+                0.0, 0.0, -1.0, 1.0
+            );
+
+            const mat4 shadowProjInv = mat4(
+                0.5 * size, 0.0, 0.0, 0.0,
+                0.0, 0.5 * size, 0.0, 0.0,
+                0.0, 0.0, -0.5 * zFar, 0.0,
+                0.0, 0.0, -0.5 * zFar, 1.0
+            );
+
+            cloud.prevShadowViewProj = cloud.shadowViewProj;
+            cloud.shadowViewProj = shadowProj * shadowModelView;
+            cloud.shadowViewProjInv = shadowModelViewInverse * shadowProjInv;
+        #endif
+
+        cloud.upscaleJitter = Halton23(frameCounter + 211);
+    #endif
+}
