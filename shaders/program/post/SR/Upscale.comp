@@ -1,0 +1,46 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+    Pass: Upscaling the scene color
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(1.0, 1.0);
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+#define FSR1_EASU_IN colortex0
+#define FSR1_EASU_OUT colorimg3
+
+//======// Uniform //=============================================================================//
+
+restrict writeonly uniform image2D FSR1_EASU_OUT; // Upscaled scene color
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Function //============================================================================//
+
+#include "/ffx/fsr1/ffx_fsr1.glsl"
+
+//======// Main //================================================================================//
+void main() {
+    #if UPSCALE_MODE == 0
+        ivec2 texelPos = ivec2(gl_GlobalInvocationID.xy);
+        vec2 scaledUv = scaleScreenUv(texelToUv(texelPos));
+        scaledUv = min(scaledUv, (renderScale - originTexelSize));
+        imageStore(FSR1_EASU_OUT, texelPos, texture(FSR1_EASU_IN, scaledUv));
+    #else
+        fsr1Easu(scaledViewSize, originViewSize, originViewSize);
+    #endif
+}
