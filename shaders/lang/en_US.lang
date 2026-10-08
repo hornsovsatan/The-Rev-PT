@@ -1,0 +1,530 @@
+# PROFILES
+profile.Default=Default
+
+
+# SCREENS
+screen.Environment=Environment
+screen.Lighting=Lighting
+screen.Materials=Materials
+screen.PostProcessing=Post-Processing
+screen.Debug=Debug
+screen.Compatibility=Compatibility
+
+screen.Atmosphere=Atmosphere
+screen.OuterSpace=Outer Space
+screen.Weather=Weather
+screen.Foliage=Foliage
+
+screen.Clouds=Clouds
+screen.CloudUpsampling=Cloud Upsampling
+
+screen.LowLevelClouds=Low-level Clouds
+screen.MidLevelClouds=Mid-level Clouds
+screen.HighLevelClouds=High-level Clouds
+
+screen.Fog=Fog
+screen.Volumetric=Volumetric Fog
+screen.Rainbows=Rainbows
+
+screen.GlobalIllumination=Global Illumination
+screen.AmbientOcclusion=Ambient Occlusion
+screen.Reflections=Reflections
+screen.Refractions=Refractions
+screen.Shadows=Shadows
+screen.MiscLighting=Miscellaneous
+
+screen.Normal=Normal
+screen.Parallax=Parallax
+screen.Emissive=Emissive
+screen.SubsurfaceScattering=Subsurface Scattering
+screen.Transparent=Transparent
+screen.WaterParams=Water Parameters
+screen.MiscMaterials=Miscellaneous
+
+screen.SuperResolution=§lSuper Resolution
+screen.DoF=DoF
+screen.TAA=TAA
+screen.MotionBlur=Motion Blur
+screen.Bloom=Bloom
+screen.Exposure=Exposure
+screen.Vignette=Vignette
+screen.Color=Color
+screen.TonemappingParams=Tonemapping Parameters
+
+
+# OPTIONS
+option.INFO=§f§3§lRevelation
+value.INFO.0=§c§lAlpha
+value.INFO.1=§a§lBeta
+value.INFO.2=§b§lRelease
+option.AUTHOR=§f§3§lAuthor
+option.AUTHOR.comment=Copyright (C) 2026 HaringPro. All Rights Reserved
+value.AUTHOR.0=§lHaringPro
+
+option.RP_SUPPORT=§f§3PBR §fResource Pack Support
+option.RENDER_MODE=§fRender Mode
+value.RENDER_MODE.0=§b§lScreenshot
+value.RENDER_MODE.1=§e§lGameplay
+
+# Environment
+option.PLANET_GROUND=Planet Ground
+option.VIEWER_BASE_ALTITUDE=Viewer Base Altitude
+suffix.VIEWER_BASE_ALTITUDE=m
+
+option.ATMOSPHERE_THICKNESS=Atmosphere Thickness
+suffix.ATMOSPHERE_THICKNESS=m
+
+option.ATMOSPHERE_TURBIDITY=Atmosphere Turbidity
+
+option.ATMOSPHERE_SKY_SAMPLES=Atmosphere Sky Samples
+option.ATMOSPHERE_TLUT_SAMPLES=Transmittance LUT Samples
+option.ATMOSPHERE_MSLUT_SAMPLES=Multi-Scatter LUT Samples
+
+option.RENDER_MOON=Render Moon
+option.SUN_RADIUS_MULT=Sun Radius Multiplier
+option.MOON_RADIUS_MULT=Moon Radius Multiplier
+
+option.STARS_COVERAGE=Stars Coverage
+option.STARS_INTENSITY=Stars Intensity
+
+option.GALAXY=Galaxy
+option.GALAXY_INTENSITY=Galaxy Intensity
+option.GALAXY_SOLAR_POS=Galaxy Solar Position
+
+option.RAINBOWS=Rainbows
+option.RAINBOWS_PRIMARY_INTENSITY=Primary Rainbow Intensity
+option.RAINBOWS_SECONDARY_INTENSITY=Secondary Rainbow Intensity
+
+# Clouds
+option.CLOUDS=Clouds
+option.CLOUD_TAAU_ENABLED=Temporal Upsampling
+option.CLOUD_TAAU_SCALE=Upsampling Scale
+suffix.CLOUD_TAAU_SCALE=x
+
+option.CLOUD_TAAU_CLIPPING=Upsampling Clipping
+option.CLOUD_TAAU_CLIPPING.comment=Clips history-frame cloud data to the statistical range (mean ± stddev) of the current 3×3 neighborhood, preventing cloud ghosting.
+option.CLOUD_MAX_ACCUM_FRAMES=Max Accumulated Frames
+option.CLOUD_TAAU_ANTIFLICKER=Anti-flicker
+
+option.CLOUD_LOW_SAMPLES_MIN=Min Main Samples
+option.CLOUD_LOW_SAMPLES_MAX=Max Main Samples
+option.CLOUD_EMPTY_SPACE_SKIP=Empty-space Skipping
+option.CLOUD_LOW_SUNLIGHT_SAMPLES=Sunlight Samples
+option.CLOUD_LOW_WIND_SPEED=Wind Speed
+suffix.CLOUD_LOW_WIND_SPEED=m/s
+option.CLOUD_LOW_WIND_ANGLE=Wind Angle
+suffix.CLOUD_LOW_WIND_ANGLE=°
+
+option.CLOUD_MID_ALTITUDE=Altitude
+option.CLOUD_MID_THICKNESS=Thickness
+option.CLOUD_MID_SUNLIGHT_SAMPLES=Sunlight Samples
+suffix.CLOUD_MID_ALTITUDE=m
+suffix.CLOUD_MID_THICKNESS=m
+option.CLOUD_MID_WIND_SPEED=Wind Speed
+suffix.CLOUD_MID_WIND_SPEED=m/s
+option.CLOUD_MID_WIND_ANGLE=Wind Angle
+suffix.CLOUD_MID_WIND_ANGLE=°
+
+option.CLOUD_HIGH_ALTITUDE=Altitude
+option.CLOUD_HIGH_THICKNESS=Thickness
+suffix.CLOUD_HIGH_ALTITUDE=m
+suffix.CLOUD_HIGH_THICKNESS=m
+option.CLOUD_HIGH_WIND_SPEED=Wind Speed
+suffix.CLOUD_HIGH_WIND_SPEED=m/s
+option.CLOUD_HIGH_WIND_ANGLE=Wind Angle
+suffix.CLOUD_HIGH_WIND_ANGLE=°
+
+option.CLOUD_CU_MODE=Cumulus Mode
+option.CLOUD_CU_MODE.comment=Low-level cumulus clouds. Off: no cumulus. Revelation: the original clouds. Proxima: clouds ported from Proxima (needs the Proxima textures in texture/cloud/proxima). To disable every cloud layer, turn off Clouds.
+value.CLOUD_CU_MODE.0=Off
+value.CLOUD_CU_MODE.1=Revelation
+value.CLOUD_CU_MODE.2=Proxima
+option.CLOUD_CU_COVERAGE=Cumulus Coverage
+option.CLOUD_CU_ALTITUDE=Cumulus Altitude
+option.CLOUD_CU_THICKNESS=Cumulus Thickness
+option.CLOUD_CU_DENSITY_B=Cumulus Bottom Density
+option.CLOUD_CU_DENSITY_T=Cumulus Top Density
+suffix.CLOUD_CU_ALTITUDE=m
+suffix.CLOUD_CU_THICKNESS=m
+
+option.PROX_LOW_SAMPLES=Proxima Main Samples
+option.PROX_LOW_SUNLIGHT_SAMPLES=Proxima Sunlight Samples
+option.PROX_LOW_WIND_SPEED=Proxima Wind Speed
+suffix.PROX_LOW_WIND_SPEED=m/s
+option.PROX_CU_ALTITUDE=Proxima Cumulus Altitude
+suffix.PROX_CU_ALTITUDE=m
+option.PROX_CU_THICKNESS=Proxima Cumulus Thickness
+suffix.PROX_CU_THICKNESS=m
+option.PROX_CU_COVERAGE=Proxima Cumulus Coverage
+option.PROX_LOW_SUN_MULT=Proxima Sunlight Multiplier
+option.PROX_LOW_SKY_MULT=Proxima Skylight Multiplier
+
+option.CLOUD_CI=Cirrus
+option.CLOUD_CI_COVERAGE=Cirrus Coverage
+option.CLOUD_CS=Cirrostratus
+option.CLOUD_CS_COVERAGE=Cirrostratus Coverage
+option.CLOUD_CC=Cirrocumulus
+option.CLOUD_CC_COVERAGE=Cirrocumulus Coverage
+
+option.CLOUD_SHADOWS=Cloud Shadows
+option.CLOUD_SHADOW_SAMPLES=Cloud Shadow Samples
+option.CLOUD_SHADOW_DISTANCE=Cloud Shadow Distance
+option.CLOUD_SHADOW_STRENGTH=Cloud Shadow Strength
+suffix.CLOUD_SHADOW_DISTANCE=Chunks
+
+# Fog
+option.VOLUMETRIC_FOG=Volumetric Fog
+option.VF_MAX_SAMPLES=Volumetric Fog Max Samples
+option.VF_CLOUD_SHADOWS=Volumetric Fog Cloud Shadows
+option.VF_HEIGHT=Volumetric Fog Height
+suffix.VF_HEIGHT=m
+
+option.VF_RAYLEIGH_DENSITY=Volumetric Fog Rayleigh Density
+option.VF_MIE_DENSITY=Volumetric Fog Mie Density
+option.VF_MIE_DENSITY_RAIN_MULT=Volumetric Fog Mie Density Rain Multiplier
+option.VF_NOISE_QUALITY=Volumetric Fog Noise Quality
+value.VF_NOISE_QUALITY.LOW=Low
+value.VF_NOISE_QUALITY.MEDIUM=Medium
+value.VF_NOISE_QUALITY.HIGH=High
+option.VF_TIME_FADE=Volumetric Fog Time Fade
+option.VF_TIME_FADE.comment=Dynamically adjusts volumetric fog density based on time of day: strongest at noon, gradually fading during sunset and night, simulating real fog driven by solar heating.
+option.COLORED_VOLUMETRIC_FOG=Colored Volumetric Fog
+option.COLORED_VOLUMETRIC_FOG.comment=During volumetric fog raymarching, detects colored shadows from translucent blocks like stained glass and mixes the transmitted color into scattered light, producing colored light shafts.
+
+option.UW_VOLUMETRIC_FOG=Underwater Volumetric Fog
+option.UW_VF_MAX_SAMPLES=Underwater Volumetric Fog Max Samples
+
+option.BORDER_FOG=Border Fog
+option.BORDER_FOG_FALLOFF=Border Fog Falloff
+
+option.PER_BIOME_FOG=Per-Biome Fog
+option.LAVA_FOG=Lava Fog
+option.POWDERED_SNOW_FOG=Powdered Snow Fog
+option.BLINDNESS_DARKNESS_FOG=Blindness & Darkness Fog
+
+# Weather
+option.RAIN_PUDDLES=Rain Puddles
+option.RAIN_PUDDLE_SCALE=Rain Puddle Scale
+option.RAIN_PUDDLE_SMOOTHNESS=Rain Puddle Smoothness
+
+option.RIPPLE_MAX_RADIUS=Ripple Max Radius
+option.RIPPLE_SCALE=Ripple Scale
+option.RIPPLE_INTENSITY=Ripple Intensity
+
+option.RAIN_VISIBILITY=Rain/Snow Visibility
+option.RAIN_SCALE_X=Rain/Snow Scale X
+option.RAIN_SCALE_Y=Rain/Snow Scale Y
+
+# Foliage
+option.WAVING_FOLIAGE=Waving Foliage
+option.WAVING_FOLIAGE_SPEED=Waving Speed
+option.WAVING_FOLIAGE_STRENGTH=Waving Strength
+option.INTERACTIVE_PLANT=Interactive Plant
+option.UNLABELLED_FOILAGE_DETECTION=Unlabelled Foliage Detection
+
+
+# Lighting
+option.shadowDistance=Shadow Map Distance
+value.shadowDistance.64.0=4 Chunks
+value.shadowDistance.80.0=5 Chunks
+value.shadowDistance.96.0=6 Chunks
+value.shadowDistance.112.0=7 Chunks
+value.shadowDistance.128.0=8 Chunks
+value.shadowDistance.160.0=10 Chunks
+value.shadowDistance.192.0=12 Chunks
+value.shadowDistance.224.0=14 Chunks
+value.shadowDistance.256.0=16 Chunks
+value.shadowDistance.320.0=20 Chunks
+value.shadowDistance.384.0=24 Chunks
+value.shadowDistance.512.0=32 Chunks
+value.shadowDistance.768.0=48 Chunks
+value.shadowDistance.1024.0=64 Chunks
+value.shadowDistance.2048.0=128 Chunks
+value.shadowDistance.4096.0=256 Chunks
+value.shadowDistance.8192.0=512 Chunks
+value.shadowDistance.16384.0=1024 Chunks
+value.shadowDistance.32768.0=2048 Chunks
+value.shadowDistance.65536.0=4096 Chunks
+
+option.shadowMapResolution=Shadow Map Resolution
+option.sunPathRotation=Sun Path Rotation
+suffix.shadowMapResolution=²
+suffix.sunPathRotation=°
+
+option.PCSS_SEARCH_SAMPLES=PCSS Search Samples
+option.PCSS_FILTER_SAMPLES=PCSS Filter Samples
+option.COLORED_SHADOWS=Colored Shadows
+
+option.SHADOW_BACKFACE_CULLING=Shadow Backface Culling
+option.SHADOW_DISTORTION_STRENGTH=Shadow Distortion Strength
+
+option.SCREEN_SPACE_SHADOWS=Screen-Space Shadows
+option.SCREEN_SPACE_SHADOWS_SAMPLES=Screen-Space Shadows Samples
+
+option.BLOCKLIGHT_BRIGHTNESS=Blocklight Brightness
+option.BLOCKLIGHT_COLOR_R=Blocklight Color §cRed
+option.BLOCKLIGHT_COLOR_G=Blocklight Color §aGreen
+option.BLOCKLIGHT_COLOR_B=Blocklight Color §9Blue
+option.HANDHELD_LIGHTING=Handheld Lighting
+option.COLORED_HANDHELD_LIGHTING=Colored Handheld Lighting
+option.HELD_LIGHT_BRIGHTNESS=Held Light Brightness
+
+option.NIGHT_BRIGHTNESS=Night Brightness
+prefix.NIGHT_BRIGHTNESS=2^
+option.MINIMUM_AMBIENT_BRIGHTNESS=Minimum Ambient Brightness
+
+option.AO_ENABLED=AO
+option.AO_MULTI_BOUNCE=AO Multi-bounce
+
+option.SSAO_SAMPLES=SSAO Samples
+option.SSAO_STRENGTH=SSAO Strength
+
+option.GTAO_SLICES=GTAO Direction Samples
+option.GTAO_DIRECTION_SAMPLES=GTAO Marching Samples
+option.GTAO_RADIUS=GTAO Radius
+
+option.SSILVB_ENABLED=SSILVB GI
+option.SSILVB_SLICE_COUNT=Direction Samples
+option.SSILVB_SAMPLE_COUNT=Marching Samples
+option.SSILVB_SECTOR_COUNT=Sector Count
+option.SSILVB_HIT_THICKNESS=Hit Thickness
+option.SSILVB_BLENDED_LIGHTMAP=Blended Lightmap
+option.SSILVB_MAX_ACCUM_FRAMES=Max Accumulated Frames
+
+option.SVGF_ENABLED=Spatio-Temporal Variance-Guided Filtering
+
+
+# Materials
+option.TEXTURE_FORMAT=PBR Texture Format
+value.TEXTURE_FORMAT.0=labPBR
+value.TEXTURE_FORMAT.1=SEUS
+value.TEXTURE_FORMAT.2=§c§k???
+
+option.NORMAL_MAPPING=Normal Mapping
+option.SPECULAR_MAPPING=Specular Mapping
+
+option.LABPBR_HARDCODED_METAL=labPBR Hardcoded Metal
+option.LABPBR_HARDCODED_METAL.comment=In LabPBR format, maps metal values 230–237 to physically-based spectral F0 reflectance for 8 real metals (Iron/Gold/Aluminium/Chromium/Copper/Lead/Platinum/Silver) instead of using albedo directly.
+
+option.AUTO_GENERATED_NORMAL=Auto Generated Normal
+option.AGN_RESOLUTION=AGN Resolution
+option.AGN_STRENGTH=AGN Strength
+
+option.PARALLAX=Parallax Occlusion Mapping
+option.SMOOTH_PARALLAX=Smooth Parallax
+option.PARALLAX_SHADOW=Parallax Shadow
+option.PARALLAX_DEPTH_WRITE=Parallax Depth Write
+option.PARALLAX_BASED_NORMAL=Parallax Based Normal
+option.PARALLAX_DEPTH=Parallax Depth
+suffix.PARALLAX_DEPTH=m
+
+option.PARALLAX_SAMPLES=Parallax Samples
+option.PARALLAX_REFINEMENT=Parallax Refinement
+option.PARALLAX_REFINEMENT_STEPS=Parallax Refinement Steps
+
+option.EMISSIVE_MODE=Emissive Mode
+value.EMISSIVE_MODE.0=Hardcoded Only
+value.EMISSIVE_MODE.1=Hardcoded + PBR
+value.EMISSIVE_MODE.2=PBR Only
+option.EMISSIVE_BRIGHTNESS=Emissive Brightness
+option.EMISSIVE_CURVE=Emissive Curve
+
+option.SUBSURFACE_SCATTERING_MODE=Subsurface Scattering Mode
+value.SUBSURFACE_SCATTERING_MODE.0=Hardcoded Only
+value.SUBSURFACE_SCATTERING_MODE.1=Hardcoded + PBR
+value.SUBSURFACE_SCATTERING_MODE.2=PBR Only
+option.SUBSURFACE_SCATTERING_STRENGTH=Subsurface Scattering Strength
+option.SUBSURFACE_SCATTERING_BRIGHTNESS=Subsurface Scattering Brightness
+option.SUBSURFACE_SCATTERING_RADIUS=Subsurface Scattering Radius
+
+option.SSRT_MAX_SAMPLES=Raytrace Samples
+option.SSRT_REFINEMENT=Raytrace Refinement
+option.SSRT_REFINEMENT_STEPS=Raytrace Refinement Steps
+
+option.SPECULAR_IMPORTANCE_SAMPLING_BIAS=Importance Sampling Bias
+option.SPECULAR_IMPORTANCE_SAMPLING_BIAS.comment=Scales the random parameter in GGX visible-normal importance sampling, biasing samples toward the specular lobe peak. Higher values reduce specular noise but may miss wide-lobe contributions from rough surfaces.
+
+option.ROUGH_REFLECTIONS=Rough Reflections
+option.ROUGH_REFLECTIONS.comment=Surfaces with roughness below the threshold are treated as perfect mirrors (direct mirror reflection, no GGX sampling); rougher surfaces use glossy GGX sampling.
+option.ROUGH_REFLECTIONS_THRESHOLD=Rough Reflections Threshold
+option.REFLECTION_FILTER=Reflection Filter
+
+option.RAYTRACED_REFRACTION=Raytraced Refraction
+option.RAYTRACED_REFRACTION.comment=Experimental feature. Not yet complete.
+option.REFRACTION_SAMPLES=Refraction Samples
+
+# Transparent
+option.WATER_PARALLAX=Water Parallax
+option.WATER_CAUSTICS=Water Caustics
+option.WATER_WAVE_HEIGHT=Water Wave Height
+option.WATER_WAVE_SPEED=Water Wave Speed
+option.WATER_FOG_DENSITY=Water Fog Density
+option.WATER_IOR=Water IOR
+option.WATER_PARALLAX_SAMPLES=Water Parallax Samples
+
+option.WATER_ABSORPTION_R=Water Absorption §cRed
+option.WATER_ABSORPTION_G=Water Absorption §aGreen
+option.WATER_ABSORPTION_B=Water Absorption §9Blue
+option.WATER_SCATTERING_R=Water Scattering §cRed
+option.WATER_SCATTERING_G=Water Scattering §aGreen
+option.WATER_SCATTERING_B=Water Scattering §9Blue
+
+option.TRANSLUCENT_ROUGHNESS=Translucent Roughness
+option.GLASS_IOR=Glass IOR
+
+# Misc
+option.DEFAULT_DIELECTRIC_F0=Default Dielectric F0
+option.SELECTION_BOX_COLOR_R=Selection Box Color §cRed
+option.SELECTION_BOX_COLOR_G=Selection Box Color §aGreen
+option.SELECTION_BOX_COLOR_B=Selection Box Color §9Blue
+
+
+# Post-Processing
+option.DEPTH_OF_FIELD=Depth of Field
+option.CAMERA_FOCUS_MODE=Focus Mode
+value.CAMERA_FOCUS_MODE.0=Auto
+value.CAMERA_FOCUS_MODE.1=Manual
+option.DOF_FOCUS_IGNORE_HAND=Ignore Hand When Focusing
+option.DOF_FOCAL_LENGTH=Focal Length
+suffix.DOF_FOCAL_LENGTH=mm
+option.DOF_F_STOP=F-Stop
+option.DOF_APERTURE_SHAPE=Aperture Shape
+value.DOF_APERTURE_SHAPE.0=Circular
+value.DOF_APERTURE_SHAPE.1=Hexagonal
+option.DOF_APERTURE_VIGNETTING=Aperture Vignetting
+option.DOF_GATHER_SAMPLES=Gather Sample Count
+option.DOF_COC_SPREAD_SAMPLES=CoC Search Sample Count
+option.DOF_MAX_BLUR_RADIUS=Maximum Blur Radius
+suffix.DOF_MAX_BLUR_RADIUS=px
+option.DOF_FOCUS_HALFLIFE=Focus Response Half-Life
+suffix.DOF_FOCUS_HALFLIFE=s
+option.DOF_MANUAL_FOCUS_DISTANCE=Manual Focus Distance
+suffix.DOF_MANUAL_FOCUS_DISTANCE=m
+
+option.TAA_ENABLED=Temporal Anti-Aliasing
+option.TAA_CLOSEST_FRAGMENT=Closest Fragment
+option.TAA_CLOSEST_FRAGMENT.comment=Selects the fragment with the smallest depth from the current pixel and its four diagonal neighbors for history reprojection, reducing ghosting and smearing at motion boundaries.
+option.TAA_SHARPEN=Sharpen
+option.TAA_CLIPPING=Clipping
+option.TAA_CLIPPING.comment=Computes the mean and standard deviation of a 3×3 neighborhood around the current pixel and clips the history color to this statistical ellipsoid, preventing ghosting from history colors that deviate too far from the current frame.
+option.TAA_AGGRESSION=Clipping Aggression
+option.TAA_AGGRESSION.comment=Controls how many standard deviations the history color is allowed to deviate from the local mean during clipping. Lower values clip more aggressively, reducing ghosting but potentially introducing noise.
+option.TAA_MAX_ACCUM_FRAMES=Max Accumulated Frames
+option.TAA_ANTIFLICKER=Anti-flicker
+option.TAA_ANTIFLICKER.comment=Dynamically increases the blend weight toward the current frame when large luminance fluctuations are detected between frames, suppressing temporal flicker. Higher values suppress flicker more aggressively.
+
+option.MOTION_BLUR=Motion Blur
+option.MOTION_BLUR_SAMPLES=Motion Blur Samples
+option.MOTION_BLUR_STRENGTH=Motion Blur Strength
+
+option.BLOOM=Bloom
+option.BLOOM_BLENDING_MODE=Bloom Blending Mode
+value.BLOOM_BLENDING_MODE.0=Add
+value.BLOOM_BLENDING_MODE.1=Lerp
+value.BLOOM_BLENDING_MODE.2=Remap
+option.BLOOM_KARIS_AVERAGE=Karis Average
+option.BLOOM_KARIS_AVERAGE.comment=During the first bloom downsample pass, weights each bilinear tile by the Karis average (1/(1+luminance)) to reduce the influence of extremely bright pixels, preventing bright sources like the sun from excessively blooming the entire image.
+option.BLOOM_INTENSITY=Bloom Intensity
+option.BLOOMY_FOG=Bloomy Fog
+option.BLOOMY_FOG_INTENSITY=Bloomy Fog Intensity
+
+option.EXPOSURE_MODE=Exposure Mode
+value.EXPOSURE_MODE.MANUAL=Manual
+value.EXPOSURE_MODE.AUTO_BASIC=Auto Basic
+value.EXPOSURE_MODE.AUTO_HISTOGRAM=Auto Histogram
+
+option.EXPOSURE_SPEED_DOWN=Exposure Speed Down
+option.EXPOSURE_SPEED_UP=Exposure Speed Up
+option.AUTO_EV_BIAS=Auto EV Bais
+option.AUTO_EV_MAX=Auto EV Max
+option.AUTO_EV_MIN=Auto EV Min
+option.HISTOGRAM_BIN_COUNT=Histogram Bin Count
+option.HISTOGRAM_LOWER_BOUND=Histogram Lower Bound
+option.HISTOGRAM_UPPER_BOUND=Histogram Upper Bound
+option.MANUAL_EV=Manual EV
+
+option.PURKINJE_SHIFT=Purkinje Shift
+option.PURKINJE_SHIFT.comment=Simulates the human eye's photopic-to-scotopic vision transition in low light: colors shift toward blue-green (rod cell sensitivity), reds fade, and blues/greens become more visible. Stronger in darker scenes.
+option.PURKINJE_SHIFT_STRENGTH=Purkinje Shift Strength
+option.PURKINJE_SHIFT_NOISE=Purkinje Shift Noise
+
+option.VIGNETTE_ENABLED=Vignette
+option.VIGNETTE_STRENGTH=Vignette Strength
+option.VIGNETTE_ROUNDNESS=Vignette Roundness
+
+option.TONE_MAPPER=Tone-Mapper
+option.TONE_MAPPER.comment=Only applied when HDR is disabled.
+value.TONE_MAPPER.0=None
+value.TONE_MAPPER.1=AgX Fit
+value.TONE_MAPPER.2=AgX Full
+value.TONE_MAPPER.3=AgX AllenWp
+value.TONE_MAPPER.16=ACES Fit
+value.TONE_MAPPER.17=ACES 2.0
+value.TONE_MAPPER.32=GT
+value.TONE_MAPPER.33=GT7
+value.TONE_MAPPER.48=Lottes
+
+option.HDR_TONE_MAPPER=HDR Tone-Mapper
+option.HDR_TONE_MAPPER.comment=Only applied when HDR is enabled.
+value.HDR_TONE_MAPPER.0=None
+value.HDR_TONE_MAPPER.3=AgX AllenWp
+value.HDR_TONE_MAPPER.16=ACES Fit
+value.HDR_TONE_MAPPER.17=ACES 2.0
+value.HDR_TONE_MAPPER.32=GT
+value.HDR_TONE_MAPPER.33=GT7
+
+option.AGX_LOOK=AGX Look
+value.AGX_LOOK.0=Default
+value.AGX_LOOK.1=Golden
+value.AGX_LOOK.2=Punchy
+value.AGX_LOOK.3=Custom
+
+option.ACES_HDR_TARGET_GAMUT=ACES HDR Target Gamut
+option.ACES_HDR_TARGET_GAMUT.comment=Only applied when HDR Tone-Mapper is set to ACES 2.0.
+value.ACES_HDR_TARGET_GAMUT.0=Disable Gamut Compression
+value.ACES_HDR_TARGET_GAMUT.1=Rec.2020
+value.ACES_HDR_TARGET_GAMUT.2=P3-D65
+
+option.COLOR_CONTRAST=Contrast
+suffix.COLOR_CONTRAST=%
+option.COLOR_SATURATION=Saturation
+suffix.COLOR_SATURATION=%
+option.GAMMA_CORRECTION=Gamma Correction
+
+option.CAS_ENABLED=Contrast-Adaptive Sharpening
+option.CAS_STRENGTH=CAS Strength
+
+option.RENDER_SCALE_1000X=Render Scale
+value.RENDER_SCALE_1000X.1000=100%
+value.RENDER_SCALE_1000X.900=90.0%
+value.RENDER_SCALE_1000X.850=85.0%
+value.RENDER_SCALE_1000X.750=75.0%
+value.RENDER_SCALE_1000X.667=66.7%
+value.RENDER_SCALE_1000X.600=60.0%
+value.RENDER_SCALE_1000X.588=58.8%
+value.RENDER_SCALE_1000X.500=50.0%
+
+option.UPSCALE_MODE=Upscale Mode
+value.UPSCALE_MODE.0=None
+value.UPSCALE_MODE.1=FSR 1.0
+
+# Compatibility
+option.MOD_BLOCK_SUPPORT=Mod Block Support
+option.PHYSICS_OCEAN_SUPPORT=Physics Ocean Support
+option.FORCE_DISABLE_SUBGROUP_OPS=§cForce Disable Subgroup Ops
+
+# Debug
+option.WHITE_WORLD=White World
+option.DEBUG_NORMALS=Debug Normals
+value.DEBUG_NORMALS.0=Off
+value.DEBUG_NORMALS.1=Surface
+value.DEBUG_NORMALS.2=Geometry
+option.DEBUG_ATMOSPHERE_LUTS=Debug Atmosphere LUTs
+option.DEBUG_SKY_MAP=Debug Sky Map
+option.DEBUG_BLOOM_TILES=Debug Bloom Tiles
+option.DEBUG_CLOUD_MAP=Debug Cloud Map
+option.DEBUG_CLOUD_NOISE=Debug Cloud Noise
+option.DEBUG_CLOUD_SHADOWS=Debug Cloud Shadows
+option.DEBUG_VOXELIZATION=Debug Voxelization
+option.DEBUG_RADIANCE_CACHE=Debug Radiance Cache
+option.DEBUG_TONE_MAPPING_PLOT=Debug Tone Mapping Plot
