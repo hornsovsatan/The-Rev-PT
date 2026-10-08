@@ -1,0 +1,75 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Build luminance histogram for auto exposure
+	Reference:  https://knarkowicz.wordpress.com/2016/01/09/automatic-exposure/
+				https://bruop.github.io/exposure/
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(0.5, 0.5);
+
+//======// Uniform //=============================================================================//
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// SSBO //================================================================================//
+
+#define SSBO_DECLARED_TPYE restrict
+#include "/lib/universal/SSBO.glsl"
+
+//======// Shared Memory //=======================================================================//
+
+shared uint sharedHistogram[HISTOGRAM_BIN_COUNT];
+
+//======// Function //============================================================================//
+
+const float autoEvMin = min(AUTO_EV_MIN, AUTO_EV_MAX);
+const float autoEvMax = max(AUTO_EV_MIN, AUTO_EV_MAX);
+const float autoEvRange = max(autoEvMax - autoEvMin, EPS);
+const float autoEvRangeInv = 1.0 / autoEvRange;
+
+uint histogramLumToBin(float lum) {
+	float bin = log2(lum) * autoEvRangeInv - autoEvMin * autoEvRangeInv;
+	return uint(saturate(bin) * float(HISTOGRAM_BIN_COUNT - 1u));
+}
+
+//======// Main //================================================================================//
+void main() {
+	uint index = gl_LocalInvocationIndex;
+	ivec2 texelPos = ivec2(gl_GlobalInvocationID.xy);
+
+	// Initialize
+	if (index < HISTOGRAM_BIN_COUNT) {
+		sharedHistogram[index] = 0u;
+	}
+	barrier();
+
+	if (all(lessThan(texelPos, textureSize(colortex4, 0) >> 1u))) {
+		// Compute luminance
+		float lum = luminance(texelFetch(colortex4, texelPos, 0).rgb);
+
+		// Update histogram
+		uint binIndex = histogramLumToBin(lum);
+		atomicAdd(sharedHistogram[binIndex], 1u);
+	}
+	barrier();
+
+	// Store histogram
+	if (index < HISTOGRAM_BIN_COUNT) {
+		atomicAdd(exposure.histogram[index], sharedHistogram[index]);
+	}
+}

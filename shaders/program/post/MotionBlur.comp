@@ -1,0 +1,73 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(1.0, 1.0);
+
+//======// Uniform //=============================================================================//
+
+restrict writeonly uniform image2D colorimg0; // Motion blur output
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Random.glsl"
+
+#define loadInput(texel) (texelFetch(colortex1, texel, 0).rgb)
+
+vec3 MotionBlur(ivec2 texelPos) {
+	#if SR_ENABLE
+	    vec2 motionVector = texelFetch(colortex8, scaleTexelPos(texelPos), 0).xy;
+	#else
+	    vec2 motionVector = texelFetch(colortex8, texelPos, 0).xy;
+	#endif
+	float motionNorm = inversesqrt(sdot(motionVector));
+
+	if (motionNorm > 1e6) return loadInput(texelPos);
+	motionVector *= saturate(motionNorm);
+
+	const float strength = MOTION_BLUR_STRENGTH / float(MOTION_BLUR_SAMPLES) * 0.01;
+	motionVector *= strength / max(frameTime, 1e-3) * originViewSize;
+
+	float dither = BlueNoise(texelPos, frameCounter);
+
+	vec2 sampleCoord = vec2(texelPos) + 0.5 + motionVector * dither;
+	sampleCoord -= motionVector * float(MOTION_BLUR_SAMPLES) * 0.5;
+
+	vec3 sum = vec3(0.0);
+	float sumWeight = 0.0;
+
+	for (uint i = 0u; i < MOTION_BLUR_SAMPLES; ++i, sampleCoord += motionVector) {
+		if (clamp(sampleCoord, vec2(0.0), originViewSize - 1.0) == sampleCoord) {
+			sum += loadInput(ivec2(sampleCoord));
+			++sumWeight;
+		}
+	}
+
+	if (sumWeight < EPS) return loadInput(texelPos);
+
+	return sum * rcp(sumWeight);
+}
+
+//======// Main //================================================================================//
+void main() {
+	uvec2 localPos = RemapThread16x16(gl_LocalInvocationIndex);
+	ivec2 texelPos = ivec2(localPos + gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+
+	imageStore(colorimg0, texelPos, vec4(MotionBlur(texelPos), texelFetch(colortex0, texelPos, 0).w));
+}
