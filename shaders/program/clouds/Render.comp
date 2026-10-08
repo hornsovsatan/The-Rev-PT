@@ -1,0 +1,97 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+#ifndef CLOUD_TAAU_ENABLED
+	const vec2 workGroupsRender = vec2(1.0, 1.0);
+#elif CLOUD_TAAU_SCALE == 2
+	const vec2 workGroupsRender = vec2(0.5, 0.5);
+#elif CLOUD_TAAU_SCALE == 3
+	const vec2 workGroupsRender = vec2(0.333333, 0.333333);
+#elif CLOUD_TAAU_SCALE == 4
+	const vec2 workGroupsRender = vec2(0.25, 0.25);
+#endif
+
+//======// Uniform //=============================================================================//
+
+writeonly uniform image2D cloudOriginImg;
+writeonly uniform image2D cloudDepthImg;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// SSBO //================================================================================//
+
+#include "/lib/universal/SSBO.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Random.glsl"
+#include "/lib/universal/Transform.glsl"
+
+#include "/lib/atmosphere/Common.glsl"
+
+#include "/lib/atmosphere/clouds/Render.glsl"
+
+/*
+float SampleDepthMax4x4(sampler2D depthTex, vec2 coord) {
+	// 4x4 pixel neighborhood using textureGatherOffset
+	float LL = maxOf(textureGatherOffset(depthTex, coord, ivec2(-2, -2)));
+	float LR = maxOf(textureGatherOffset(depthTex, coord, ivec2(-2,  2)));
+	float UL = maxOf(textureGatherOffset(depthTex, coord, ivec2( 2, -2)));
+	float UR = maxOf(textureGatherOffset(depthTex, coord, ivec2( 2,  2)));
+
+	return max(max(LL, LR), max(UL, UR));
+}*/
+
+bool SkyCheck4x4(vec2 coord) {
+	// 4x4 pixel neighborhood using textureGatherOffset
+	uvec4 LL = textureGatherOffset(colortex7, coord, ivec2(-2, -2), 1);
+	uvec4 LR = textureGatherOffset(colortex7, coord, ivec2(-2,  2), 1);
+	uvec4 UL = textureGatherOffset(colortex7, coord, ivec2( 2, -2), 1);
+	uvec4 UR = textureGatherOffset(colortex7, coord, ivec2( 2,  2), 1);
+
+	// Material ID 0 is sky
+	return any(equal(LL & LR & UL & UR, uvec4(0u)));
+}
+
+//======// Main //================================================================================//
+void main() {
+	uvec2 localPos = RemapThread16x16(gl_LocalInvocationIndex);
+	ivec2 texelPos = ivec2(localPos + gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+
+	vec2 coord = (vec2(texelPos) + cloud.upscaleJitter) * scaledTexelSize;
+
+	#ifdef CLOUD_TAAU_ENABLED
+		coord *= float(CLOUD_TAAU_SCALE);
+	#endif
+
+	CloudRenderResult result = CloudRenderResult(vec3(0.0), 1.0, 0.0);
+
+	if (SkyCheck4x4(scaleScreenUv(coord))) {
+		vec2 noise = SampleStbnVec2(texelPos, frameCounter + 11);
+
+		vec3 viewDir  = ScreenToViewDirRaw(coord);
+		vec3 worldDir = mat3(gbufferModelViewInverse) * viewDir;
+
+		vec3 skyRadiance = AtmosphereSkyView(atmosphereViewPos, worldDir, sunDirWorld);
+		result = RenderClouds(worldDir, noise, skyRadiance);
+	}
+
+	imageStore(cloudOriginImg, texelPos, vec4(result.scatteredLight, result.transmittance));
+	imageStore(cloudDepthImg, texelPos, vec4(result.frontDepth));
+}
