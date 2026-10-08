@@ -1,0 +1,197 @@
+#if !defined INCLUDE_LIB_SHADOW_RENDER
+#define INCLUDE_LIB_SHADOW_RENDER
+
+#define PCSS_SEARCH_SAMPLES 8 // [4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 48 64]
+#define PCSS_FILTER_SAMPLES 16 // [4 6 8 10 12 14 16 18 20 22 24 26 28 30 32 48 64]
+
+//================================================================================================//
+
+#include "Common.glsl"
+
+vec3 WorldToShadowScreenSpace(vec3 worldPos) {
+	vec3 shadowClipPos = transMAD(shadowModelView, worldPos);
+	shadowClipPos = projMAD(shadowProjection, shadowClipPos);
+
+	return DistortShadowSpace(shadowClipPos) * 0.5 + 0.5;
+}
+
+vec3 WorldToShadowScreenSpace(vec3 worldPos, out float distortionFactor) {
+	vec3 shadowClipPos = transMAD(shadowModelView, worldPos);
+	shadowClipPos = projMAD(shadowProjection, shadowClipPos);
+
+	distortionFactor = CalcDistortionFactor(shadowClipPos.xy);
+	return DistortShadowSpace(shadowClipPos, distortionFactor) * 0.5 + 0.5;
+}
+
+//================================================================================================//
+
+uniform sampler2DShadow shadowtex1;
+uniform sampler2D shadowtex0;
+uniform sampler2D shadowcolor0;
+uniform sampler2D shadowcolor1;
+
+#include "Caustic.glsl"
+
+float BlockerSearch(vec3 shadowScreenPos, float dither, float searchScale) {
+	float blockerDepth = 0.0;
+
+	vec2 searchRadius = searchScale * diagonal2(shadowProjection);
+
+	for (uint i = 0u; i < PCSS_SEARCH_SAMPLES; ++i) {
+		vec2 offset = sampleVogelDisk(i, PCSS_SEARCH_SAMPLES, dither);
+		vec2 sampleCoord = fma(offset, searchRadius, shadowScreenPos.xy);
+
+		float sampleDepth = texelFetch(shadowtex0, ivec2(sampleCoord * realShadowMapRes), 0).x;
+		blockerDepth += saturate(shadowScreenPos.z - sampleDepth);
+	}
+
+	blockerDepth *= -10.0 / float(PCSS_SEARCH_SAMPLES);
+	return blockerDepth * shadowProjectionInverse[2].z;
+}
+
+vec3 PercentageCloserFilter(vec3 shadowScreenPos, vec3 worldPos, float dither, float blockerDepth, float distortionFactor) {
+	blockerDepth *= mix(sunAngularRadius, moonAngularRadius, step(0.5, sunAngle));
+
+	const float minRadius = 0.015;
+	float sharpenFactor = saturate(blockerDepth * rcp(minRadius));
+
+	blockerDepth = clamp(blockerDepth, minRadius, 0.25);
+	vec2 penumbraRadius = blockerDepth * distortionFactor * diagonal2(shadowProjection);
+
+	float shadow = 0.0;
+	vec3 color = vec3(0.0);
+	vec4 waterData = vec4(0.0); // (encoded normal, count)
+	float waterDepth = 0.0;
+
+	for (uint i = 0u; i < PCSS_FILTER_SAMPLES; ++i) {
+		vec2 offset = sampleVogelDisk(i, PCSS_FILTER_SAMPLES, dither);
+		vec2 sampleCoord = fma(offset, penumbraRadius, shadowScreenPos.xy);
+
+		float sampleDepth1 = texture(shadowtex1, vec3(sampleCoord, shadowScreenPos.z)).x;
+		shadow += sampleDepth1;
+
+	#ifdef COLORED_SHADOWS
+		if (floatBitsToUint(sampleDepth1) > 0u) {
+			ivec2 sampleTexel = ivec2(sampleCoord * realShadowMapRes);
+			float sampleDepth0 = texelFetch(shadowtex0, sampleTexel, 0).x;
+
+            if (shadowScreenPos.z > sampleDepth0) {
+				vec4 waterSample = texelFetch(shadowcolor1, sampleTexel, 0);
+				if (waterSample.w > 0.5) {
+					waterData += vec4(waterSample.xyz, 1.0);
+					waterDepth += sampleDepth0 - shadowScreenPos.z;
+                } else {
+                    color += cube(texelFetch(shadowcolor0, sampleTexel, 0).rgb);
+                }
+            } else {
+                color += 1.0;
+            }
+        }
+	#endif
+	}
+
+	// Early out if shadowed
+	if (shadow < EPS) return vec3(0.0);
+
+	const float rSteps = 1.0 / float(PCSS_FILTER_SAMPLES);
+	shadow *= rSteps;
+	color *= rSteps;
+
+	#ifndef COLORED_SHADOWS
+		color = vec3(1.0);
+	#endif
+
+	#ifdef WATER_CAUSTICS
+		if (waterData.w > 0.0) {
+			float rWaterSamples = rcp(waterData.w);
+			waterData.xyz *= rWaterSamples;
+
+			waterDepth *= rWaterSamples * shadowProjectionInverse[2].z * 10.0;
+			vec3 caustics = CalculateWaterCaustics(worldPos, waterDepth, waterData.xyz);
+			color = mix(color, caustics, waterData.w * rSteps);
+		}
+	#endif
+
+	// Sharpen the near shadow
+	shadow = mix(smoothstep(0.3, 0.7, shadow), shadow, sharpenFactor);
+	return shadow * color;
+}
+
+vec3 CalculatePCSS(vec3 worldPos, vec3 normalOffset, float dither, out float blockerDepth) {
+	blockerDepth = 0.0;
+
+	float distortionFactor;
+	vec3 shadowScreenPos = WorldToShadowScreenSpace(worldPos + normalOffset, distortionFactor);
+	shadowScreenPos.z -= 3e-8 * (1.0 + dither) * shadowProjectionInverse[1].y * distortionFactor;
+
+	vec3 result = vec3(1.0);
+	if (saturate(shadowScreenPos) == shadowScreenPos) {
+		blockerDepth = BlockerSearch(shadowScreenPos, dither * TAU, 0.15 * distortionFactor);
+
+		result = PercentageCloserFilter(shadowScreenPos, worldPos, dither * TAU, blockerDepth, distortionFactor);
+	}
+
+	return result;
+}
+
+//================================================================================================//
+
+float ScreenSpaceShadow(vec3 rayPos, vec3 viewPos, float dither, float sssAmount) {
+	vec3 rayDir = ViewToScreenPos(shadowDirView * abs(viewPos.z) + viewPos) - rayPos;
+	rayDir *= minOf((step(0.0, rayDir) - rayPos) / rayDir);
+	rayDir *= inversesqrt(sdot(rayDir.xy));
+
+	vec3 rayStep = rayDir * (0.05 / float(SCREEN_SPACE_SHADOWS_SAMPLES));
+	rayPos += dither * rayStep + rayDir * maxOf(scaledTexelSize);
+
+	float viewDistInv = inversesqrt(sdot(viewPos));
+	float diffTolerance = 5e-4 * viewDistInv;
+	float absorption = exp2(-0.125 / (viewDistInv * sssAmount));
+
+	float result = 1.0;
+
+	for (uint i = 0u; i < SCREEN_SPACE_SHADOWS_SAMPLES; ++i, rayPos += rayStep) {
+		if (saturate(rayPos.xy) != rayPos.xy || result < 1e-2) break;
+
+		ivec2 sampleTexel = uvToTexelScaled(rayPos.xy);
+		float sampleDepth = loadDepth0(sampleTexel);
+
+        #if defined PARALLAX && defined PARALLAX_SHADOW
+            float sampleParallaxOffset = loadParallaxOffset(sampleTexel);
+            sampleDepth += sampleParallaxOffset;
+        #endif
+
+		bool hit = abs(sampleDepth - rayPos.z + diffTolerance) < diffTolerance;
+
+		#if defined LOD_MOD
+			if (sampleDepth > 1.0 - EPS) {
+				sampleDepth = loadDepth0Lod(sampleTexel);
+				sampleDepth = ViewToScreenDepth(ScreenToViewDepthLod(sampleDepth));
+                #if defined PARALLAX && defined PARALLAX_SHADOW
+                    sampleDepth += sampleParallaxOffset;
+                #endif
+				hit = abs(sampleDepth - rayPos.z + diffTolerance) < diffTolerance;
+			} else
+		#endif
+		if (hit) {
+			vec2 samplePos = rayPos.xy * scaledViewSize + 0.5;
+			vec2 samplePosFloor = floor(samplePos);
+			vec2 samplePosFract = samplePos - samplePosFloor;
+
+			vec4 sh = textureGather(depthtex0, samplePosFloor * originTexelSize);
+			vec2 temp = mix(sh.wx, sh.zy, vec2(samplePosFract.x));
+			sampleDepth = mix(temp.x, temp.y, samplePosFract.y);
+            #if defined PARALLAX && defined PARALLAX_SHADOW
+                sampleDepth += sampleParallaxOffset;
+            #endif
+
+			hit = abs(sampleDepth - rayPos.z + diffTolerance) < diffTolerance;
+		}
+
+		result *= saturate(absorption + float(!hit));
+	}
+
+	return result;
+}
+
+#endif // INCLUDE_LIB_SHADOW_RENDER
