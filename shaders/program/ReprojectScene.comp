@@ -1,0 +1,46 @@
+/*
+--------------------------------------------------------------------------------
+
+	Revelation Shaders
+
+	Copyright (C) 2026 HaringPro
+	Apache License 2.0
+
+	Pass: Reproject scene history
+
+--------------------------------------------------------------------------------
+*/
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const vec2 workGroupsRender = vec2(RENDER_SCALE, RENDER_SCALE);
+
+//======// Uniform //=============================================================================//
+
+writeonly restrict uniform image2D colorimg4;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Fetch.glsl"
+#include "/lib/universal/Transform.glsl"
+
+//======// Main //================================================================================//
+void main() {
+	uvec2 localPos = RemapThread16x16(gl_LocalInvocationIndex);
+	ivec2 texelPos = ivec2(localPos + gl_WorkGroupID.xy * gl_WorkGroupSize.xy);
+
+	float depth = loadDepth0(texelPos);
+	vec2 previousCoord = ReprojectScreenPos(vec3(texelToUvScaled(texelPos), depth)).xy;
+
+	if (depth > 0.56) {
+		vec3 reprojectedHistory = texture(colortex1, saturate(previousCoord)).rgb;
+		imageStore(colorimg4, texelPos, vec4(reprojectedHistory, 1.0));
+	}
+}
