@@ -1,0 +1,119 @@
+/*
+--------------------------------------------------------------------------------
+
+    Revelation Shaders
+
+    Copyright (C) 2026 HaringPro
+    Apache License 2.0
+
+--------------------------------------------------------------------------------
+*/
+
+#define PASS_CLOUD_SM
+
+//======// Input //===============================================================================//
+
+layout(local_size_x = 16, local_size_y = 16) in;
+const ivec3 workGroups = ivec3(32, 32, 1);
+
+//======// Utility //=============================================================================//
+
+#include "/lib/Utility.glsl"
+
+//======// Uniform //=============================================================================//
+
+writeonly uniform image2D cloudShadowImg;
+
+#include "/lib/universal/Uniform.glsl"
+
+//======// SSBO //================================================================================//
+
+#include "/lib/universal/SSBO.glsl"
+
+//======// Function //============================================================================//
+
+#include "/lib/universal/Random.glsl"
+
+#include "/lib/atmosphere/Common.glsl"
+#include "/lib/atmosphere/clouds/Shape.glsl"
+#include "/lib/atmosphere/clouds/ProximaLow.glsl"
+
+//======// Main //================================================================================//
+void main() {
+    ivec2 tid = ivec2(gl_GlobalInvocationID.xy);
+
+#if !defined CLOUD_CU
+    // Cumulus Mode = Off: no low clouds -> no cloud shadows (1.0 = fully lit)
+    imageStore(cloudShadowImg, tid, vec4(1.0, 0.0, 0.0, 0.0));
+#else
+    #ifdef PROXIMA_LOW_CLOUDS
+        const float layerBottom     = proxCumulusBottomRadius;
+        const float layerTop        = proxCumulusTopRadius;
+        const float layerExtinction = proxCumulusExtinction;
+    #else
+        const float layerBottom     = cloudLayer0.minHeight;
+        const float layerTop        = cloudLayer0.maxHeight;
+        const float layerExtinction = cloudLayer0.coeff.extinction;
+    #endif
+
+    // Checkerboard render cloud shadow map
+    ivec2 offset = checkerboardOffset2x2[frameCounter & 3];
+    if ((tid & 1) == offset || historyReset) {
+        float dither = BlueNoise(tid, frameCounter);
+
+        vec2 uv = (vec2(tid) + dither) / textureSize(cloudShadowTex, 0);
+        vec3 worldPos = SetupCloudShadowPos(uv);
+        vec3 rayPos = worldPos + atmosphereViewPos;
+
+        // Increase steps for lower elevation
+        float steps = float(CLOUD_SHADOW_SAMPLES) * (2.0 - shadowDirWorld.y);
+
+        float top = RaySphereIntersection(rayPos, shadowDirWorld, layerTop).y;
+        float bottom = RaySphereIntersection(rayPos, shadowDirWorld, layerBottom).y;
+        vec2 intersection = vec2(bottom, top);
+        float stepLength = (intersection.y - intersection.x) * rcp(steps);
+        vec3 rayStep = shadowDirWorld * stepLength;
+
+        rayPos += shadowDirWorld * intersection.x;
+        rayPos += rayStep * fract(dither + PHI);
+
+        float extinction = 0.0;
+        const float threshold = -log2(cloudMinTransmittance) / layerExtinction;
+
+        // Raymarch along the light vector
+        for (uint i = 0u; i < uint(steps) && extinction < threshold; ++i, rayPos += rayStep) {
+            #ifdef PROXIMA_LOW_CLOUDS
+                float temp0, temp1;
+                #ifdef PROX_SHADOW_DETAIL
+                    extinction += ProxCloudVolumeDensity(rayPos, temp0, temp1, true) * stepLength;
+                #else
+                    extinction += ProxCloudVolumeDensity(rayPos, temp0, temp1, false) * stepLength;
+                #endif
+            #else
+                // Normalized height in clouds
+                float heightFraction = length(rayPos) * rcp(cloudLayer0.thickness) - cloudLayer0.minHeight / cloudLayer0.thickness;
+                float temp;
+                extinction += CloudVolumeDensity(rayPos, heightFraction, temp, cloudDensityModeBase) * stepLength;
+            #endif
+        }
+
+        float transmittance = exp2(-rLOG2 * layerExtinction * extinction);
+        transmittance = linearstep(cloudMinTransmittance, 1.0, transmittance);
+
+        float strength = linearstep(0.02, 0.05, shadowDirWorld.y) * sqrt(CLOUD_SHADOW_STRENGTH);
+        float cloudShadow = oms(strength) + transmittance * strength;
+
+        // Reproject and accumulate
+        vec3 cloudMidPos = worldPos + shadowDirWorld * dot(intersection, vec2(0.5));
+        vec2 prevUV = WorldToCloudShadowPrevScreenPos(cloudMidPos).xy;
+
+        if (saturate(prevUV) == prevUV && !historyReset) {
+            const float weight = rcp(32.0);
+            float prevValue = textureLod(cloudShadowTex, prevUV, 0.0).x;
+            cloudShadow = mix(prevValue, cloudShadow, weight);
+        }
+
+        imageStore(cloudShadowImg, tid, vec4(cloudShadow, 0.0, 0.0, 0.0));
+    }
+#endif
+}
