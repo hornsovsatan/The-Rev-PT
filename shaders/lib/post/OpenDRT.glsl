@@ -1,0 +1,614 @@
+/* OpenDRT v1.1.0 for GLSL
+ *
+ * Ported from the DCTL implementation by Jed Smith
+ * https://github.com/jedypod/open-display-transform
+ * License: GPLv3
+ *
+ * Usage:
+ *   OpenDRTParams p = opendrt_preset_arriba();
+ *   vec3 color = opendrt_transform(linear_rec709_rgb, p);
+ *
+ * Assumes linear Rec709 for both input and output.
+ */
+
+// Constants
+const float OPENDRT_SQRT3 = 1.73205080756887729353;
+const float OPENDRT_PI = 3.14159265358979323846;
+
+// Rec709 to P3D65 (combined: XYZ_TO_P3D65 * REC709_TO_XYZ)
+const mat3 OPENDRT_MAT_REC709_TO_P3D65 = mat3(
+    0.822461968714362, 0.033194198850962, 0.017082630721120,
+    0.177538031285638, 0.966805801149039, 0.072397440663963,
+    0.000000000000000, 0.000000000000000, 0.910519928614917
+);
+// P3D65 to Rec709 (combined: XYZ_TO_REC709 * P3D65_TO_XYZ)
+const mat3 OPENDRT_MAT_P3D65_TO_REC709 = mat3(
+    1.330491941578183, -0.290093791601681, -0.022059650277825,
+    0.076047256700335, 0.929484639997463, -0.001619937843595,
+    0.014348850163338, -0.128309359367284, 1.105294149555569
+);
+// P3D65 to XYZ (used for creative whitepoint adaptation)
+const mat3 OPENDRT_MAT_P3D65_TO_XYZ = mat3(
+    0.486570948648216151, 0.228974564069748754, -4.00000000000000029e-17,
+    0.265667693169093, 0.691738521836506193, 0.0451133818589026167,
+    0.198217285234362467, 0.079286914093744984, 1.04394436890097575
+);
+// XYZ D65 to P3D65
+const mat3 OPENDRT_MAT_XYZ_TO_P3D65 = mat3(
+    2.49349691194142542, -0.829488969561574696, 0.0358458302437844531,
+    -0.93138361791912383, 1.76266406031834655, -0.0761723892680418041,
+    -0.402710784450716841, 0.0236246858419435941, 0.956884524007687309
+);
+// XYZ D65 to Rec709
+const mat3 OPENDRT_MAT_XYZ_TO_REC709 = mat3(
+    3.24096994190452348, -0.969243636280879506, 0.0556300796969936354,
+    -1.53738317757009435, 1.87596750150771996, -0.20397695888897649,
+    -0.498610760293003552, 0.0415550574071755843, 1.05697151424287816
+);
+
+// Creative whitepoint CAT matrices (chromatic adaptation from D65)
+const mat3 OPENDRT_MAT_D65_TO_D93 = mat3(
+    0.95703423023223877, -0.0179296955466270447, 0.00127589143812656403,
+    -0.0247171502560377121, 0.990019857883453369, 0.00427919067442417058,
+    0.0624028593301773071, 0.0248119533061981201, 1.29345715045928955
+);
+const mat3 OPENDRT_MAT_D65_TO_D75 = mat3(
+    0.981001079082489014, -0.00843488052487373352, 0.000552809564396739006,
+    -0.0116619253531098366, 0.996506094932556152, 0.00179840810596942902,
+    0.0265614092350006104, 0.0105696544051170349, 1.12374722957611084
+);
+const mat3 OPENDRT_MAT_D65_TO_D60 = mat3(
+    1.01182246208190918, 0.00561682833358645439, -0.000335735734552145004,
+    0.00778879318386316299, 1.00150644779205322, -0.0010509500280022619,
+    -0.0157783031463623047, -0.00628517568111419678, 0.927366673946380615
+);
+const mat3 OPENDRT_MAT_D65_TO_D55 = mat3(
+    1.02585089206695557, 0.0129133854061365128, -0.000719940289855003032,
+    0.0179439820349216461, 1.00214779376983643, -0.00218106806278228803,
+    -0.0332137793302536011, -0.0132421031594276428, 0.84868013858795166
+);
+const mat3 OPENDRT_MAT_D65_TO_D50 = mat3(
+    1.04257404804229736, 0.0221935361623764038, -0.00116488314233720303,
+    0.03089117631316185, 1.00185668468475342, -0.00342052709311246915,
+    -0.052812620997428894, -0.0210737623274326324, 0.761789083480834961
+);
+
+// Creative white normalization factors (Rec709)
+const float OPENDRT_CWP_REC709[6] = float[6](
+    0.744192699063, 0.873470832146, 1.0, 0.955936992163, 0.905671332781, 0.850004385027
+);
+
+// OpenDRT parameter struct
+struct OpenDRTParams {
+    // Tonescale
+    float tn_con;
+    float tn_sh;
+    float tn_toe;
+    float tn_off;
+    float tn_Lp;
+    float tn_Lg;
+    float tn_gb;
+    int tn_su;
+
+    // Contrast high
+    bool tn_hcon_enable;
+    float tn_hcon;
+    float tn_hcon_pv;
+    float tn_hcon_st;
+
+    // Contrast low
+    bool tn_lcon_enable;
+    float tn_lcon;
+    float tn_lcon_w;
+
+    // Creative white
+    int cwp;
+    float cwp_lm;
+
+    // Render space
+    float rs_sa;
+    float rs_rw;
+    float rs_bw;
+
+    // Purity compress high
+    bool pt_enable;
+    float pt_lml;
+    vec3 pt_lml_rgb;
+    float pt_lmh;
+    float pt_lmh_r;
+    float pt_lmh_b;
+    float pt_hdr;
+
+    // Purity softclip
+    bool ptl_enable;
+    float ptl_c;
+    float ptl_m;
+    float ptl_y;
+
+    // Mid purity
+    bool ptm_enable;
+    float ptm_low;
+    float ptm_low_rng;
+    float ptm_low_st;
+    float ptm_high;
+    float ptm_high_rng;
+    float ptm_high_st;
+
+    // Brilliance (pre-tonescale)
+    bool brl_enable;
+    float brl;
+    vec3 brl_rgb;
+    float brl_rng;
+    float brl_st;
+
+    // Post brilliance
+    bool brlp_enable;
+    float brlp;
+    vec3 brlp_rgb;
+
+    // Hue contrast
+    bool hc_enable;
+    float hc_r;
+    float hc_r_rng;
+
+    // Hue shift RGB
+    bool hs_rgb_enable;
+    vec3 hs_rgb;
+    vec3 hs_rgb_rng;
+
+    // Hue shift CMY
+    bool hs_cmy_enable;
+    vec3 hs_cmy;
+    vec3 hs_cmy_rng;
+};
+
+// Utility math
+float opendrt_spowf(float a, float b) {
+    return a <= 0.0 ? a : pow(max(a, 0.0), b);
+}
+vec3 opendrt_spowf(vec3 a, vec3 b) {
+    return vec3(
+        a.x <= 0.0 ? a.x : pow(max(a.x, 0.0), b.x),
+        a.y <= 0.0 ? a.y : pow(max(a.y, 0.0), b.y),
+        a.z <= 0.0 ? a.z : pow(max(a.z, 0.0), b.z)
+    );
+}
+
+// Tonescale helper functions
+float opendrt_compress_hyperbolic_power(float x, float s, float p) {
+    return opendrt_spowf(x / max(x + s, 1e-10), p);
+}
+
+float opendrt_compress_toe_quadratic(float x, float toe) {
+    if (toe == 0.0) return x;
+    return opendrt_spowf(x, 2.0) / (x + toe);
+}
+
+float opendrt_compress_toe_quadratic_inv(float x, float toe) {
+    if (toe == 0.0) return x;
+    return (x + sqrt(x * (4.0 * toe + x))) / 2.0;
+}
+
+float opendrt_gauss_window(float x, float w) {
+    return exp(-x * x / w);
+}
+
+vec2 opendrt_opponent(vec3 rgb) {
+    return vec2(rgb.x - rgb.z, rgb.y - (rgb.x + rgb.z) / 2.0);
+}
+
+float opendrt_hue_offset(float h, float o) {
+    return mod(h - o + OPENDRT_PI, 2.0 * OPENDRT_PI) - OPENDRT_PI;
+}
+
+// Look presets
+OpenDRTParams opendrt_preset_default() {
+    OpenDRTParams p;
+    p.tn_con = 1.66; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.005;
+    p.tn_Lp = 100.0; p.tn_Lg = 10.0; p.tn_gb = 0.13; p.tn_su = 0;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 0.0; p.tn_lcon_w = 0.5;
+    p.cwp = 2; p.cwp_lm = 0.25;
+    p.rs_sa = 0.35; p.rs_rw = 0.25; p.rs_bw = 0.55;
+    p.pt_enable = true; p.pt_lml = 0.25; p.pt_lml_rgb = vec3(0.5, 0.0, 0.1);
+    p.pt_lmh = 0.25; p.pt_lmh_r = 0.5; p.pt_lmh_b = 0.0; p.pt_hdr = 0.5;
+    p.ptl_enable = true; p.ptl_c = 0.06; p.ptl_m = 0.08; p.ptl_y = 0.06;
+    p.ptm_enable = true; p.ptm_low = 0.4; p.ptm_low_rng = 0.25; p.ptm_low_st = 0.5;
+    p.ptm_high = -0.8; p.ptm_high_rng = 0.35; p.ptm_high_st = 0.4;
+    p.brl_enable = true; p.brl = 0.0; p.brl_rgb = vec3(-2.5, -1.5, -1.5);
+    p.brl_rng = 0.5; p.brl_st = 0.35;
+    p.brlp_enable = true; p.brlp = -0.5; p.brlp_rgb = vec3(-1.25, -1.25, -0.25);
+    p.hc_enable = true; p.hc_r = 1.0; p.hc_r_rng = 0.3;
+    p.hs_rgb_enable = true; p.hs_rgb = vec3(0.6, 0.35, 0.66); p.hs_rgb_rng = vec3(0.6, 1.0, 1.0);
+    p.hs_cmy_enable = true; p.hs_cmy = vec3(0.25, 0.0, 0.0); p.hs_cmy_rng = vec3(1.0, 1.0, 1.0);
+    return p;
+}
+
+OpenDRTParams opendrt_preset_arriba() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.05; p.tn_toe = 0.1; p.tn_off = 0.01;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.5; p.tn_lcon_w = 0.2;
+    p.pt_lml = 0.25; p.pt_lml_rgb = vec3(0.45, 0.0, 0.1);
+    p.pt_lmh = 0.25; p.pt_lmh_r = 0.25; p.pt_lmh_b = 0.0;
+    p.ptm_low = 1.0; p.ptm_low_rng = 0.4; p.ptm_high_rng = 0.66; p.ptm_high_st = 0.6;
+    p.brlp = 0.0; p.brlp_rgb = vec3(-1.7, -2.0, -0.5);
+    p.hs_rgb_rng.x = 0.8; p.hs_cmy.x = 0.15;
+    return p;
+}
+
+OpenDRTParams opendrt_preset_sylvan() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.6; p.tn_toe = 0.01; p.tn_off = 0.01;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.25; p.tn_lcon_w = 0.75;
+    p.rs_sa = 0.25;
+    p.pt_lml = 0.15; p.pt_lml_rgb.g = 0.15;
+    p.ptl_y = 0.05;
+    p.pt_lmh_r = 0.15; p.pt_lmh_b = 0.15;
+    p.ptm_low = 0.5; p.ptm_low_rng = 0.5; p.ptm_high_rng = 0.5; p.ptm_high_st = 0.5;
+    p.brl = -1.0; p.brl_rgb = vec3(-2.0, -2.0, 0.0);
+    p.brl_rng = 0.25; p.brl_st = 0.25;
+    p.brlp = -1.0; p.brlp_rgb = vec3(-0.5, -0.25, -0.25);
+    p.hc_r_rng = 0.4;
+    p.hs_rgb_rng.x = 1.15; p.hs_rgb.g = 0.8; p.hs_rgb_rng.g = 1.25; p.hs_rgb.b = 0.6; p.hs_rgb_rng.b = 1.0;
+    p.hs_cmy = vec3(0.25, 0.25, 0.35); p.hs_cmy_rng = vec3(0.25, 0.5, 0.5);
+    return p;
+}
+
+OpenDRTParams opendrt_preset_colorful() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.5; p.tn_toe = 0.003; p.tn_off = 0.003;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.4;
+    p.pt_lml = 0.5; p.pt_lml_rgb = vec3(1.0, 0.0, 0.5);
+    p.pt_lmh = 0.15; p.pt_lmh_r = 0.15; p.pt_lmh_b = 0.15;
+    p.ptl_c = 0.05; p.ptl_m = 0.06; p.ptl_y = 0.05;
+    p.ptm_low = 0.8; p.ptm_low_rng = 0.5; p.ptm_low_st = 0.4;
+    p.ptm_high_rng = 0.4; p.ptm_high_st = 0.4;
+    p.brl_rgb = vec3(-1.25, -1.25, -0.25);
+    p.brl_rng = 0.3; p.brl_st = 0.5;
+    p.brlp_rgb = vec3(-1.25, -1.25, -0.5);
+    p.hc_r_rng = 0.4;
+    p.hs_rgb.x = 0.5; p.hs_rgb_rng.x = 0.8; p.hs_rgb.b = 0.5; p.hs_rgb_rng.b = 1.0; p.hs_cmy.z = 0.25;
+    return p;
+}
+
+OpenDRTParams opendrt_preset_aery() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.15; p.tn_toe = 0.04; p.tn_off = 0.006;
+    p.tn_hcon_pv = 0.0; p.tn_hcon_st = 0.5;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.5; p.tn_lcon_w = 2.0;
+    p.cwp = 1;
+    p.rs_sa = 0.25; p.rs_rw = 0.2; p.rs_bw = 0.5;
+    p.pt_lml = 0.0; p.pt_lml_rgb = vec3(0.5, 0.15, 0.1);
+    p.pt_lmh = 0.0; p.pt_lmh_r = 0.1; p.pt_lmh_b = 0.0;
+    p.ptl_c = 0.05; p.ptl_y = 0.05;
+    p.ptm_low = 0.8; p.ptm_low_rng = 0.35; p.ptm_high = -0.9; p.ptm_high_rng = 0.5; p.ptm_high_st = 0.3;
+    p.brl = -3.0; p.brl_rgb = vec3(0.0, 0.0, 1.0);
+    p.brl_rng = 0.8; p.brl_st = 0.15;
+    p.brlp = -1.0; p.brlp_rgb = vec3(-1.0, -1.0, 0.0);
+    p.hc_r = 0.5; p.hc_r_rng = 0.25;
+    p.hs_rgb_rng = vec3(1.0, 2.0, 1.5);
+    p.hs_cmy = vec3(0.35, 0.25, 0.35); p.hs_cmy_rng.z = 0.5;
+    return p;
+}
+
+OpenDRTParams opendrt_preset_dystopic() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.6; p.tn_toe = 0.01; p.tn_off = 0.008;
+    p.tn_hcon_enable = true; p.tn_hcon = 0.25; p.tn_hcon_pv = 0.0; p.tn_hcon_st = 1.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 0.75;
+    p.cwp = 3;
+    p.rs_sa = 0.2;
+    p.pt_lml = 0.15; p.pt_lml_rgb = vec3(0.0);
+    p.pt_lmh = 0.0; p.pt_lmh_r = 0.0; p.pt_lmh_b = 0.0;
+    p.ptl_c = 0.05; p.ptl_y = 0.05;
+    p.ptm_low = 0.25; p.ptm_low_rng = 0.25; p.ptm_low_st = 0.8;
+    p.ptm_high_rng = 0.6; p.ptm_high_st = 0.25;
+    p.brl = -2.0; p.brl_rgb = vec3(-2.0, -2.0, 0.0);
+    p.brl_rng = 0.35; p.brl_st = 0.35;
+    p.brlp = 0.0; p.brlp_rgb = vec3(-1.0);
+    p.hc_r_rng = 0.25;
+    p.hs_rgb = vec3(0.7, 1.0, 0.75); p.hs_rgb_rng = vec3(1.33, 2.0, 2.0);
+    p.hs_cmy = vec3(1.0, 1.0, 1.0); p.hs_cmy_rng = vec3(0.5, 1.0, 0.765);
+    return p;
+}
+
+OpenDRTParams opendrt_preset_umbra() {
+    OpenDRTParams p = opendrt_preset_default();
+    p.tn_con = 1.8; p.tn_toe = 0.001; p.tn_off = 0.015;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 1.0;
+    p.cwp = 5;
+    p.pt_lml = 0.0; p.pt_lml_rgb = vec3(0.5, 0.0, 0.15);
+    p.pt_lmh_r = 0.25;
+    p.ptl_c = 0.05; p.ptl_m = 0.06; p.ptl_y = 0.05;
+    p.ptm_low = 0.4; p.ptm_low_rng = 0.35; p.ptm_low_st = 0.66;
+    p.ptm_high = -0.6; p.ptm_high_rng = 0.45; p.ptm_high_st = 0.45;
+    p.brl = -2.0; p.brl_rgb = vec3(-4.5, -3.0, -4.0);
+    p.brl_rng = 0.35; p.brl_st = 0.3;
+    p.brlp = 0.0; p.brlp_rgb = vec3(-2.0, -1.0, -0.5);
+    p.hc_r_rng = 0.35;
+    p.hs_rgb = vec3(0.66, 0.5, 0.85); p.hs_rgb_rng = vec3(1.0, 2.0, 2.0);
+    p.hs_cmy = vec3(0.0, 0.25, 0.66); p.hs_cmy_rng.z = 0.66;
+    return p;
+}
+
+// Tonescale presets — call after selecting a look preset to override tonescale parameters
+void opendrt_tonescale_default(inout OpenDRTParams p) {}
+void opendrt_tonescale_optimized(inout OpenDRTParams p) {
+    p.tn_con = 1.0; p.tn_sh = 0.0; p.tn_toe = 0.0; p.tn_off = 0.0;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 0.0; p.tn_lcon_w = 0.5;
+}
+void opendrt_tonescale_low_contrast(inout OpenDRTParams p) {
+    p.tn_con = 1.4; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.005;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 0.0; p.tn_lcon_w = 0.5;
+}
+void opendrt_tonescale_medium_contrast(inout OpenDRTParams p) {
+    p.tn_con = 1.66; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.005;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 0.0; p.tn_lcon_w = 0.5;
+}
+void opendrt_tonescale_high_contrast(inout OpenDRTParams p) {
+    p.tn_con = 1.4; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.005;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 0.5;
+}
+void opendrt_tonescale_arriba(inout OpenDRTParams p) {
+    p.tn_con = 1.05; p.tn_sh = 0.5; p.tn_toe = 0.1; p.tn_off = 0.01;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.5; p.tn_lcon_w = 0.2;
+}
+void opendrt_tonescale_sylvan(inout OpenDRTParams p) {
+    p.tn_con = 1.6; p.tn_sh = 0.5; p.tn_toe = 0.01; p.tn_off = 0.01;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.25; p.tn_lcon_w = 0.75;
+}
+void opendrt_tonescale_colorful(inout OpenDRTParams p) {
+    p.tn_con = 1.5; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.003;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.4; p.tn_lcon_w = 0.5;
+}
+void opendrt_tonescale_aery(inout OpenDRTParams p) {
+    p.tn_con = 1.15; p.tn_sh = 0.5; p.tn_toe = 0.04; p.tn_off = 0.006;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 0.0; p.tn_hcon_st = 0.5;
+    p.tn_lcon_enable = true; p.tn_lcon = 0.5; p.tn_lcon_w = 2.0;
+}
+void opendrt_tonescale_dystopic(inout OpenDRTParams p) {
+    p.tn_con = 1.6; p.tn_sh = 0.5; p.tn_toe = 0.01; p.tn_off = 0.008;
+    p.tn_hcon_enable = true; p.tn_hcon = 0.25; p.tn_hcon_pv = 0.0; p.tn_hcon_st = 1.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 0.75;
+}
+void opendrt_tonescale_umbra(inout OpenDRTParams p) {
+    p.tn_con = 1.8; p.tn_sh = 0.5; p.tn_toe = 0.001; p.tn_off = 0.015;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 1.0;
+}
+void opendrt_tonescale_aces_1x(inout OpenDRTParams p) {
+    p.tn_con = 1.0; p.tn_sh = 0.35; p.tn_toe = 0.02; p.tn_off = 0.0;
+    p.tn_hcon_enable = true; p.tn_hcon = 0.55; p.tn_hcon_pv = 0.0; p.tn_hcon_st = 2.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.13; p.tn_lcon_w = 1.0;
+}
+void opendrt_tonescale_aces_2(inout OpenDRTParams p) {
+    p.tn_con = 1.15; p.tn_sh = 0.5; p.tn_toe = 0.04; p.tn_off = 0.0;
+    p.tn_hcon_enable = false; p.tn_hcon = 1.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 1.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 1.0; p.tn_lcon_w = 0.6;
+}
+void opendrt_tonescale_marvelous(inout OpenDRTParams p) {
+    p.tn_con = 1.5; p.tn_sh = 0.5; p.tn_toe = 0.003; p.tn_off = 0.01;
+    p.tn_hcon_enable = true; p.tn_hcon = 0.25; p.tn_hcon_pv = 0.0; p.tn_hcon_st = 4.0;
+    p.tn_lcon_enable = true; p.tn_lcon = 1.0; p.tn_lcon_w = 1.0;
+}
+void opendrt_tonescale_dagrinchi(inout OpenDRTParams p) {
+    p.tn_con = 1.2; p.tn_sh = 0.5; p.tn_toe = 0.02; p.tn_off = 0.0;
+    p.tn_hcon_enable = false; p.tn_hcon = 0.0; p.tn_hcon_pv = 1.0; p.tn_hcon_st = 1.0;
+    p.tn_lcon_enable = false; p.tn_lcon = 0.0; p.tn_lcon_w = 0.6;
+}
+
+// Main OpenDRT transform
+vec3 opendrt_transform(vec3 rgb, OpenDRTParams p) {
+
+    // Tonescale constraint calculations
+    float ts_x1 = pow(2.0, 6.0 * p.tn_sh + 4.0);
+    float ts_y1 = p.tn_Lp / 100.0;
+    float ts_x0 = 0.18 + p.tn_off;
+    float ts_y0 = p.tn_Lg / 100.0 * (1.0 + p.tn_gb * (log(ts_y1) / log(2.0)));
+    float ts_s0 = opendrt_compress_toe_quadratic_inv(ts_y0, p.tn_toe);
+    float ts_p = p.tn_con / (1.0 + float(p.tn_su) * 0.05);
+    float ts_s10 = ts_x0 * (pow(max(ts_s0, 1e-10), -1.0 / p.tn_con) - 1.0);
+    float ts_m1 = ts_y1 / opendrt_spowf(ts_x1 / (ts_x1 + ts_s10), p.tn_con);
+    float ts_m2 = opendrt_compress_toe_quadratic_inv(ts_m1, p.tn_toe);
+    float ts_s = ts_x0 * (opendrt_spowf(ts_s0 / max(ts_m2, 1e-10), -1.0 / p.tn_con) - 1.0);
+    float ts_dsc = 100.0 / p.tn_Lp;
+
+    float pt_cmp_Lf = p.pt_hdr * min(1.0, (p.tn_Lp - 100.0) / 900.0);
+    float s_Lp100 = ts_x0 * (opendrt_spowf(p.tn_Lg / 100.0, -1.0 / p.tn_con) - 1.0);
+    float ts_s1 = ts_s * pt_cmp_Lf + s_Lp100 * (1.0 - pt_cmp_Lf);
+
+    // Convert from linear Rec709 to P3-D65
+    rgb = OPENDRT_MAT_REC709_TO_P3D65 * rgb;
+
+    // Render space desaturation
+    vec3 rs_w = vec3(p.rs_rw, 1.0 - p.rs_rw - p.rs_bw, p.rs_bw);
+    float sat_L = dot(rgb, rs_w);
+    rgb = sat_L * p.rs_sa + rgb * (1.0 - p.rs_sa);
+
+    // Offset
+    rgb += p.tn_off;
+
+    // Tonescale norm and RGB ratios
+    float tsn = length(rgb) / OPENDRT_SQRT3;
+    rgb = vec3(tsn == 0.0 ? 0.0 : rgb.x / tsn, tsn == 0.0 ? 0.0 : rgb.y / tsn, tsn == 0.0 ? 0.0 : rgb.z / tsn);
+
+    vec2 opp = opendrt_opponent(rgb);
+    float ach_d = length(opp) / 2.0;
+    ach_d = 1.25 * opendrt_compress_toe_quadratic(ach_d, 0.25);
+
+    float hue = mod(atan(opp.x, opp.y) + OPENDRT_PI + 1.10714931, 2.0 * OPENDRT_PI);
+
+    vec3 ha_rgb = vec3(
+        opendrt_gauss_window(opendrt_hue_offset(hue, 0.1), 0.66),
+        opendrt_gauss_window(opendrt_hue_offset(hue, 4.3), 0.66),
+        opendrt_gauss_window(opendrt_hue_offset(hue, 2.3), 0.66)
+    );
+
+    vec3 ha_rgb_hs = vec3(
+        opendrt_gauss_window(opendrt_hue_offset(hue, -0.4), 0.66),
+        ha_rgb.y,
+        opendrt_gauss_window(opendrt_hue_offset(hue, 2.5), 0.66)
+    );
+
+    vec3 ha_cmy = vec3(
+        opendrt_gauss_window(opendrt_hue_offset(hue, 3.3), 0.5),
+        opendrt_gauss_window(opendrt_hue_offset(hue, 1.3), 0.5),
+        opendrt_gauss_window(opendrt_hue_offset(hue, -1.15), 0.5)
+    );
+
+    // Brilliance (pre-tonescale)
+    if (p.brl_enable) {
+        float brl_tsf = opendrt_spowf(tsn / (tsn + 1.0), 1.0 - p.brl_rng);
+        float brl_exf = (p.brl + dot(p.brl_rgb, ha_rgb)) *
+                        opendrt_spowf(ach_d, 1.0 / p.brl_st);
+        float brl_ex = pow(2.0, brl_exf * (brl_exf < 0.0 ? brl_tsf : 1.0 - brl_tsf));
+        tsn *= brl_ex;
+    }
+
+    // Contrast low
+    if (p.tn_lcon_enable) {
+        float lcon_m = pow(2.0, -p.tn_lcon);
+        float lcon_w = p.tn_lcon_w / 4.0;
+        lcon_w *= lcon_w;
+        float lcon_cnst_sc;
+        if (lcon_m == 1.0) {
+            lcon_cnst_sc = 1.0;
+        } else {
+            float _x2 = ts_x0 * ts_x0;
+            float _p0 = _x2 - 3.0 * lcon_m * lcon_w;
+            float _p1 = 2.0 * _x2 + 27.0 * lcon_w - 9.0 * lcon_m * lcon_w;
+            float _p2 = pow(sqrt(_x2 * _p1 * _p1 - 4.0 * _p0 * _p0 * _p0) / 2.0 + ts_x0 * _p1 / 2.0, 1.0 / 3.0);
+            lcon_cnst_sc = (_p0 / (3.0 * _p2) + _p2 / 3.0 + ts_x0 / 3.0) / ts_x0;
+        }
+        tsn *= lcon_cnst_sc;
+        if (lcon_m != 1.0)
+            tsn = tsn * (tsn * tsn + lcon_m * lcon_w) / (tsn * tsn + lcon_w);
+    }
+
+    // Contrast high
+    if (p.tn_hcon_enable) {
+        float hcon_p = pow(2.0, p.tn_hcon);
+        float _x0_c = 0.18 * pow(2.0, p.tn_hcon_pv);
+        if (tsn >= _x0_c && hcon_p != 1.0) {
+            float _o = _x0_c - _x0_c / hcon_p;
+            float _s0 = pow(_x0_c, 1.0 - hcon_p) / hcon_p;
+            float _x1 = _x0_c * pow(2.0, p.tn_hcon_st);
+            float _k1 = hcon_p * _s0 * pow(_x1, hcon_p) / _x1;
+            float _y1 = _s0 * pow(_x1, hcon_p) + _o;
+            if (tsn > _x1)
+                tsn = _k1 * (tsn - _x1) + _y1;
+            else
+                tsn = _s0 * pow(tsn, hcon_p) + _o;
+        }
+    }
+
+    // Hyperbolic compression
+    float tsn_pt = opendrt_compress_hyperbolic_power(tsn, ts_s1, ts_p);
+    float tsn_const = opendrt_compress_hyperbolic_power(tsn, s_Lp100, ts_p);
+    tsn = opendrt_compress_hyperbolic_power(tsn, ts_s, ts_p);
+
+    // Hue contrast R
+    if (p.hc_enable) {
+        float hc_ts = 1.0 - tsn_const;
+        float hc_c = hc_ts * (1.0 - ach_d) + ach_d * (1.0 - hc_ts);
+        hc_c *= ach_d * ha_rgb.x;
+        hc_ts = opendrt_spowf(hc_ts, 1.0 / p.hc_r_rng);
+        float hc_f = p.hc_r * (hc_c - 2.0 * hc_c * hc_ts) + 1.0;
+        rgb = vec3(rgb.x, rgb.y * hc_f, rgb.z * hc_f);
+    }
+
+    // Hue shift RGB
+    if (p.hs_rgb_enable) {
+        vec3 _hs_rgb_w = opendrt_spowf(vec3(tsn_pt), 1.0 / p.hs_rgb_rng) * (ha_rgb_hs * ach_d);
+        vec3 hsf = _hs_rgb_w * vec3(p.hs_rgb.x, -p.hs_rgb.y, -p.hs_rgb.z);
+        hsf = vec3(hsf.z - hsf.y, hsf.x - hsf.z, hsf.y - hsf.x);
+        rgb += hsf;
+    }
+
+    // Hue shift CMY
+    if (p.hs_cmy_enable) {
+        float tsn_pt_compl = 1.0 - tsn_pt;
+        vec3 _hs_cmy_w = opendrt_spowf(vec3(tsn_pt_compl), 1.0 / p.hs_cmy_rng) * (ha_cmy * ach_d);
+        vec3 hsf = _hs_cmy_w * vec3(-p.hs_cmy.x, p.hs_cmy.y, p.hs_cmy.z);
+        hsf = vec3(hsf.z - hsf.y, hsf.x - hsf.z, hsf.y - hsf.x);
+        rgb += hsf;
+    }
+
+    // Purity compression
+    float pt_lml_p = 1.0 + 4.0 * (1.0 - tsn_pt) *
+                     (p.pt_lml + dot(p.pt_lml_rgb, ha_rgb_hs));
+    float ptf = 1.0 - opendrt_spowf(tsn_pt, pt_lml_p);
+    float pt_lmh_p = (1.0 - ach_d * (p.pt_lmh_r * ha_rgb_hs.x + p.pt_lmh_b * ha_rgb_hs.z)) *
+                     (1.0 - p.pt_lmh * ach_d);
+    ptf = opendrt_spowf(ptf, pt_lmh_p);
+
+    // Mid-range purity
+    if (p.ptm_enable) {
+        float ptm_low_f = 1.0;
+        if (p.ptm_low_st != 0.0 && p.ptm_low_rng != 0.0)
+            ptm_low_f = 1.0 + p.ptm_low * exp(-2.0 * ach_d * ach_d / p.ptm_low_st) *
+                               opendrt_spowf(1.0 - tsn_const, 1.0 / p.ptm_low_rng);
+        float ptm_high_f = 1.0;
+        if (p.ptm_high_st != 0.0 && p.ptm_high_rng != 0.0)
+            ptm_high_f = 1.0 + p.ptm_high * exp(-2.0 * ach_d * ach_d / p.ptm_high_st) *
+                               opendrt_spowf(tsn_pt, 1.0 / (4.0 * p.ptm_high_rng));
+        ptf *= ptm_low_f * ptm_high_f;
+    }
+
+    // Lerp to peak achromatic by ptf in rgb ratios
+    rgb = rgb * ptf + 1.0 - ptf;
+
+    // Inverse render space
+    sat_L = dot(rgb, rs_w);
+    rgb = (sat_L * p.rs_sa - rgb) / (p.rs_sa - 1.0);
+
+    // Display gamut (Rec709) and creative whitepoint
+    {
+        vec3 _cwp_neutral = OPENDRT_MAT_P3D65_TO_XYZ * rgb;
+        float _cwp_f = opendrt_spowf(tsn_const, 2.0 * p.cwp_lm);
+        rgb = _cwp_neutral;
+        if (p.cwp == 0) rgb = OPENDRT_MAT_D65_TO_D93 * _cwp_neutral;
+        else if (p.cwp == 1) rgb = OPENDRT_MAT_D65_TO_D75 * _cwp_neutral;
+        else if (p.cwp == 3) rgb = OPENDRT_MAT_D65_TO_D60 * _cwp_neutral;
+        else if (p.cwp == 4) rgb = OPENDRT_MAT_D65_TO_D55 * _cwp_neutral;
+        else if (p.cwp == 5) rgb = OPENDRT_MAT_D65_TO_D50 * _cwp_neutral;
+        rgb = rgb * _cwp_f + _cwp_neutral * (1.0 - _cwp_f);
+        rgb = OPENDRT_MAT_XYZ_TO_REC709 * rgb;
+        rgb *= OPENDRT_CWP_REC709[p.cwp] * _cwp_f + 1.0 - _cwp_f;
+    }
+
+    // Post brilliance
+    if (p.brlp_enable) {
+        vec2 brlp_opp = opendrt_opponent(rgb);
+        float brlp_ach_d = length(brlp_opp) / 4.0;
+        brlp_ach_d = 1.1 * (brlp_ach_d * brlp_ach_d / (brlp_ach_d + 0.1));
+        vec3 brlp_ha_rgb = ach_d * ha_rgb;
+        float brlp_m = p.brlp + dot(p.brlp_rgb, brlp_ha_rgb);
+        float brlp_ex = pow(2.0, brlp_m * brlp_ach_d * tsn);
+        rgb *= brlp_ex;
+    }
+
+    // Purity softclip
+    if (p.ptl_enable) {
+        vec3 ptl_s = vec3(p.ptl_c, p.ptl_m, p.ptl_y);
+        vec3 ptl_r = ptl_s * log(max(vec3(0.0), 1.0 + exp(rgb / ptl_s)));
+        rgb = mix(ptl_r, rgb, max(vec3(greaterThan(rgb, 10.0 * ptl_s)), vec3(lessThan(ptl_s, vec3(1e-4)))));
+    }
+
+    // Final tonescale adjustments
+    tsn *= ts_m2;
+    tsn = opendrt_compress_toe_quadratic(tsn, p.tn_toe);
+    tsn *= ts_dsc;
+
+    // Return from RGB ratios
+    rgb *= tsn;
+
+    return rgb;
+}
